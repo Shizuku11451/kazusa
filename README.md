@@ -9,7 +9,7 @@
 
 ![游戏库](docs/screenshots/library.png)
 
-<sub>截图里的游戏都是虚构的演示数据。</sub>
+![游戏详情](docs/screenshots/detail.png)
 
 ## 功能（MVP）
 
