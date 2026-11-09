@@ -8,6 +8,7 @@ import SwiftUI
 struct GameSettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openSettings) private var openSettings
     @Binding var game: Game
 
     @State private var candidates: [String] = []
@@ -59,6 +60,19 @@ struct GameSettingsView: View {
                 }
 
                 Section("翻译") {
+                    LabeledContent("翻译服务") {
+                        HStack {
+                            if let provider = model.settings.activeProvider {
+                                Text("\(provider.name) · \(provider.model)").foregroundStyle(.secondary)
+                            } else {
+                                Text("未配置").foregroundStyle(.orange)
+                            }
+                            Button(model.settings.activeProvider == nil ? "去配置…" : "更改…") {
+                                model.settingsTab = .translation
+                                openSettings()
+                            }
+                        }
+                    }
                     Toggle("启动时打开翻译悬浮窗", isOn: $game.translation.enabled)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("术语表（每行一条：原文=译文）").font(.caption).foregroundStyle(.secondary)

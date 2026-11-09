@@ -33,6 +33,8 @@ final class AppModel {
     /// 正在进行的长操作（初始化前缀等），显示在界面上。
     var busyMessage: String?
     var alert: AlertItem?
+    /// 设置窗口当前的标签页；从别处跳过去时先改它再打开设置。
+    var settingsTab: SettingsTab = .runtime
 
     var settings: AppSettings {
         didSet {
@@ -58,6 +60,12 @@ final class AppModel {
         let id = UUID()
         var title: String
         var message: String
+        /// 不为空时弹窗里多一个“去设置”按钮，跳到对应标签页。
+        var settingsTab: SettingsTab?
+    }
+
+    enum SettingsTab: Hashable {
+        case runtime, translation
     }
 
     init() {
@@ -289,7 +297,7 @@ final class AppModel {
               let game = games.first(where: { $0.id == id }),
               let metadata = game.metadata, let synopsis = metadata.synopsis else { return }
         guard var translator = makeTranslator() else {
-            alert = AlertItem(title: "还没配置翻译接口", message: "请先在“设置 → 翻译”里添加一个 LLM 接口。")
+            alert = AlertItem(title: "还没配置翻译服务", message: "请先在设置的“翻译”页里添加一个 LLM 服务并填好 API Key。", settingsTab: .translation)
             return
         }
         translator.prompt = .synopsis(targetLanguage: settings.prompt.targetLanguage)
@@ -308,7 +316,7 @@ final class AppModel {
                 games[i].metadata?.synopsisTranslation = result
                 saveGames()
             } catch {
-                report(error)
+                alert = AlertItem(title: "简介翻译失败", message: error.localizedDescription, settingsTab: .translation)
             }
         }
     }
@@ -370,7 +378,7 @@ final class AppModel {
             return
         }
         guard let runtime = currentRuntime else {
-            alert = AlertItem(title: "没有可用的 Wine 运行时", message: "请在“设置 → 运行环境”里安装或指定一个 Wine 运行时。")
+            alert = AlertItem(title: "没有可用的 Wine 运行时", message: "请在设置的“运行环境”页里安装或指定一个 Wine 运行时。", settingsTab: .runtime)
             return
         }
 

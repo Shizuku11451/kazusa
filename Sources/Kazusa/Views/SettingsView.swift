@@ -6,12 +6,17 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
+    @Environment(AppModel.self) private var model
+
     var body: some View {
-        TabView {
+        @Bindable var model = model
+        TabView(selection: $model.settingsTab) {
             RuntimeSettingsView()
                 .tabItem { Label("运行环境", systemImage: "cpu") }
+                .tag(AppModel.SettingsTab.runtime)
             TranslationSettingsView()
                 .tabItem { Label("翻译", systemImage: "character.bubble") }
+                .tag(AppModel.SettingsTab.translation)
         }
         .frame(width: 640, height: 520)
     }

@@ -6,6 +6,7 @@ import SwiftUI
 
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openSettings) private var openSettings
     @State private var isDropTargeted = false
 
     private let columns = [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 18)]
@@ -40,9 +41,23 @@ struct LibraryView: View {
                 GameSettingsView(game: binding)
             }
         }
-        .alert(item: $model.alert) { item in
-            Alert(title: Text(item.title), message: Text(item.message))
+        .alert(model.alert?.title ?? "", isPresented: alertShown, presenting: model.alert) { item in
+            if let tab = item.settingsTab {
+                Button("去设置") {
+                    model.settingsTab = tab
+                    openSettings()
+                }
+                Button("好", role: .cancel) {}
+            } else {
+                Button("好", role: .cancel) {}
+            }
+        } message: { item in
+            Text(item.message)
         }
+    }
+
+    private var alertShown: Binding<Bool> {
+        Binding(get: { model.alert != nil }, set: { if !$0 { model.alert = nil } })
     }
 
     private var library: some View {
@@ -96,6 +111,8 @@ struct LibraryView: View {
                 Button { model.overlay.show(game: model.selectedGame) } label: {
                     Label("翻译悬浮窗", systemImage: "character.bubble")
                 }
+                Button { openSettings() } label: { Label("设置", systemImage: "gearshape") }
+                    .help("运行环境、翻译服务（LLM）等全局设置")
             }
         }
     }
