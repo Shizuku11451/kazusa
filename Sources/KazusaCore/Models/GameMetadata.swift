@@ -20,11 +20,13 @@ public struct GameMetadata: Codable, Hashable, Sendable {
     public var rating: Double?
     /// 简介，已去掉 BBCode 和剧透段落。VNDB 上的简介大多是英文。
     public var synopsis: String?
+    /// 用 LLM 翻译过的简介。只对应当前的 `synopsis`，原文变了就作废。
+    public var synopsisTranslation: String?
     public var fetchedAt: Date
 
     public init(vndbID: String, originalTitle: String? = nil, chineseTitle: String? = nil, developers: [String] = [],
                 released: String? = nil, lengthMinutes: Int? = nil, rating: Double? = nil, synopsis: String? = nil,
-                fetchedAt: Date = Date()) {
+                synopsisTranslation: String? = nil, fetchedAt: Date = Date()) {
         self.vndbID = vndbID
         self.originalTitle = originalTitle
         self.chineseTitle = chineseTitle
@@ -33,7 +35,24 @@ public struct GameMetadata: Codable, Hashable, Sendable {
         self.lengthMinutes = lengthMinutes
         self.rating = rating
         self.synopsis = synopsis
+        self.synopsisTranslation = synopsisTranslation
         self.fetchedAt = fetchedAt
+    }
+
+    /// 刷新资料后沿用旧的译文（原文没变的话）。
+    public func keepingTranslation(from old: GameMetadata?) -> GameMetadata {
+        var copy = self
+        if let old, old.synopsis == synopsis { copy.synopsisTranslation = old.synopsisTranslation }
+        return copy
+    }
+
+    /// 翻译简介时用的术语表：游戏自己的术语表，加上 原名 → 中文名。
+    public func synopsisGlossary(merging glossary: [String: String]) -> [String: String] {
+        var result = glossary
+        if let original = originalTitle, let chinese = chineseTitle, result[original] == nil {
+            result[original] = chinese
+        }
+        return result
     }
 
     /// “2010年3月26日”“2010年3月”“2010年”；未定时返回“未定”。

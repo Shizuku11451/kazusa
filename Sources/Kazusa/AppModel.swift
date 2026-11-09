@@ -19,6 +19,8 @@ final class AppModel {
     var coverSearch: CoverSearchRequest?
     /// 正在从 VNDB 拉取资料的游戏。
     var metadataLoading: Set<UUID> = []
+    /// 正在翻译简介的游戏，值是目前为止流式收到的译文。
+    var synopsisTranslating: [UUID: String] = [:]
 
     var games: [Game] = []
     var selectedGameID: UUID?
@@ -237,7 +239,7 @@ final class AppModel {
                 let metadata = try await VNDB.details(id: vndbID)
                 // 等待期间用户可能换了条目或解除了关联。
                 guard let i = games.firstIndex(where: { $0.id == id }), games[i].vndbID == vndbID else { return }
-                games[i].metadata = metadata
+                games[i].metadata = metadata.keepingTranslation(from: games[i].metadata)
                 saveGames()
             } catch {
                 if !silent { report(error) }
@@ -265,6 +267,36 @@ final class AppModel {
             }
         case .failure(let error):
             if !silent { report(error) }
+        }
+    }
+
+    /// 用当前的 LLM 配置把简介翻成目标语言，流式显示，完成后存进资料里。
+    func translateSynopsis(for id: UUID) {
+        guard synopsisTranslating[id] == nil,
+              let game = games.first(where: { $0.id == id }),
+              let metadata = game.metadata, let synopsis = metadata.synopsis else { return }
+        guard var translator = makeTranslator() else {
+            alert = AlertItem(title: "还没配置翻译接口", message: "请先在“设置 → 翻译”里添加一个 LLM 接口。")
+            return
+        }
+        translator.prompt = .synopsis(targetLanguage: settings.prompt.targetLanguage)
+        let request = TranslationRequest(text: synopsis, glossary: metadata.synopsisGlossary(merging: game.translation.glossary))
+        synopsisTranslating[id] = ""
+        Task {
+            defer { synopsisTranslating[id] = nil }
+            do {
+                let result = try await translator.translateStreaming(request) { partial in
+                    Task { @MainActor [weak self] in
+                        if self?.synopsisTranslating[id] != nil { self?.synopsisTranslating[id] = partial }
+                    }
+                }
+                // 等待期间资料可能被刷新或解除关联。
+                guard let i = games.firstIndex(where: { $0.id == id }), games[i].metadata?.synopsis == synopsis else { return }
+                games[i].metadata?.synopsisTranslation = result
+                saveGames()
+            } catch {
+                report(error)
+            }
         }
     }
 

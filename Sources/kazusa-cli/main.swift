@@ -15,7 +15,8 @@ let usage = """
   wine [--locale ...] [--prefix ...] <参数...>
                                     在前缀里执行任意 wine 命令（如 winecfg）
   cover <标题>                       在 VNDB 上搜索封面（只打印结果，不下载）
-  info <VNDB 编号或标题>             从 VNDB 拉取简介、品牌等资料并打印
+  info <VNDB 编号或标题> [--translate]
+                                    从 VNDB 拉取简介、品牌等资料并打印；--translate 用设置里的 LLM 翻译简介
 """
 
 let paths = KazusaPaths.default
@@ -144,6 +145,7 @@ case "cover":
     }
 
 case "info":
+    let translate = flag("--translate")
     let query = args.joined(separator: " ")
     guard !query.isEmpty else { fail("需要 VNDB 编号（如 v3144）或游戏标题") }
     var id = query
@@ -160,6 +162,14 @@ case "info":
     if let t = m.lengthText { print("游玩时长：\(t)") }
     if let t = m.ratingText { print("评分：\(t)") }
     if let t = m.synopsis { print("\n\(t)") }
+    if translate, let synopsis = m.synopsis {
+        let settings = AppSettings.load(from: paths.settingsFile)
+        guard let provider = settings.activeProvider else { fail("设置里还没有 LLM 接口") }
+        let translator = LLMTranslator(provider: provider, prompt: .synopsis(targetLanguage: settings.prompt.targetLanguage),
+                                       apiKey: Keychain.apiKey(for: provider.id))
+        print("\n—— 译文（\(provider.name) / \(provider.model)）——")
+        print(try await translator.translate(TranslationRequest(text: synopsis, glossary: m.synopsisGlossary(merging: [:]))))
+    }
 
 default:
     print(usage)

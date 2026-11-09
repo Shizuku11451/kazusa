@@ -14,6 +14,7 @@ struct GameDetailView: View {
     @State private var glossaryText = ""
     @State private var isCoverDropTargeted = false
     @State private var isSynopsisExpanded = false
+    @State private var showsOriginalSynopsis = false
 
     var body: some View {
         Form {
@@ -85,6 +86,7 @@ struct GameDetailView: View {
         .formStyle(.grouped)
         .task(id: game.id) {
             isSynopsisExpanded = false
+            showsOriginalSynopsis = false
             await reload()
         }
     }
@@ -139,13 +141,7 @@ struct GameDetailView: View {
                 if let length = m.lengthText { LabeledContent("游玩时长", value: length) }
                 if let rating = m.ratingText { LabeledContent("VNDB 评分", value: rating) }
                 if let synopsis = m.synopsis {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(synopsis)
-                            .lineLimit(isSynopsisExpanded ? nil : 4)
-                            .textSelection(.enabled)
-                        Button(isSynopsisExpanded ? "收起" : "展开") { isSynopsisExpanded.toggle() }
-                            .buttonStyle(.link).font(.caption)
-                    }
+                    synopsisView(original: synopsis, translation: m.synopsisTranslation)
                 }
             } else if isLoading {
                 HStack { ProgressView().controlSize(.small); Text("正在从 VNDB 获取资料…").foregroundStyle(.secondary) }
@@ -165,6 +161,47 @@ struct GameDetailView: View {
                     Button("解除关联") { model.unlinkVNDB(for: game.id) }
                 } else {
                     Button("自动匹配") { Task { await model.matchMetadata(for: game.id) } }.disabled(isLoading)
+                }
+            }
+            .buttonStyle(.link).font(.caption)
+        }
+    }
+
+    /// 简介：有译文时默认显示译文；翻译中显示流式收到的部分。
+    private func synopsisView(original: String, translation: String?) -> some View {
+        let partial = model.synopsisTranslating[game.id]
+        let isTranslating = partial != nil
+        let shown: String
+        if let partial {
+            shown = partial.isEmpty ? original : partial
+        } else if let translation, !showsOriginalSynopsis {
+            shown = translation
+        } else {
+            shown = original
+        }
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(shown)
+                .lineLimit(isSynopsisExpanded || isTranslating ? nil : 4)
+                .textSelection(.enabled)
+                .foregroundStyle(partial?.isEmpty == true ? .secondary : .primary)
+            HStack(spacing: 12) {
+                if !isTranslating {
+                    Button(isSynopsisExpanded ? "收起" : "展开") { isSynopsisExpanded.toggle() }
+                }
+                if isTranslating {
+                    ProgressView().controlSize(.mini)
+                    Text("正在翻译…").foregroundStyle(.secondary)
+                } else if translation != nil {
+                    Button(showsOriginalSynopsis ? "显示译文" : "显示原文") { showsOriginalSynopsis.toggle() }
+                    Button("重新翻译") {
+                        showsOriginalSynopsis = false
+                        model.translateSynopsis(for: game.id)
+                    }
+                } else {
+                    Button("翻译简介") {
+                        showsOriginalSynopsis = false
+                        model.translateSynopsis(for: game.id)
+                    }
                 }
             }
             .buttonStyle(.link).font(.caption)

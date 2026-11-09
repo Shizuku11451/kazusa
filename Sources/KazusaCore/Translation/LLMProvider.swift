@@ -70,6 +70,20 @@ public struct TranslationPromptConfig: Codable, Hashable, Sendable {
         self.contextLines = contextLines
     }
 
+    /// 翻译游戏简介用的提示词：沿用目标语言，不带上文。
+    public static func synopsis(targetLanguage: String) -> TranslationPromptConfig {
+        TranslationPromptConfig(targetLanguage: targetLanguage, systemPrompt: synopsisSystemPrompt, contextLines: 0)
+    }
+
+    public static let synopsisSystemPrompt = """
+    你是一名视觉小说（galgame）资料译者。把用户给出的游戏简介翻译成{target}，用于游戏库里的介绍。
+    要求：
+    - 只输出译文，不要解释、不要加标题或前缀。
+    - 保留原文的分段；语气流畅自然，像正式发行的中文版介绍。
+    - 人物名按日文汉字或通行译名写，不要音译成罗马字；术语表里有的严格按术语表。
+    - 末尾类似“[From Steam]”的来源标注翻成“（来源：Steam）”。
+    """
+
     public static let defaultSystemPrompt = """
     你是一名专业的视觉小说（galgame）译者。把用户给出的游戏文本翻译成{target}。
     要求：

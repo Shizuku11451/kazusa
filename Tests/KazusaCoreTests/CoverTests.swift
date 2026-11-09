@@ -135,3 +135,26 @@ import Testing
         #expect(decoded.vndbID == "v1")
     }
 }
+
+@Suite struct SynopsisTranslationTests {
+    @Test func keepsTranslationOnlyWhenSynopsisUnchanged() {
+        let old = GameMetadata(vndbID: "v1", synopsis: "A girl.", synopsisTranslation: "一个女孩。")
+        #expect(GameMetadata(vndbID: "v1", synopsis: "A girl.").keepingTranslation(from: old).synopsisTranslation == "一个女孩。")
+        #expect(GameMetadata(vndbID: "v1", synopsis: "A boy.").keepingTranslation(from: old).synopsisTranslation == nil)
+        #expect(GameMetadata(vndbID: "v1", synopsis: "A girl.").keepingTranslation(from: nil).synopsisTranslation == nil)
+    }
+
+    @Test func glossaryAddsTitleWithoutOverridingUser() {
+        let m = GameMetadata(vndbID: "v1", originalTitle: "素晴らしき日々", chineseTitle: "美好的每一天")
+        #expect(m.synopsisGlossary(merging: ["由岐": "由岐"]) == ["由岐": "由岐", "素晴らしき日々": "美好的每一天"])
+        #expect(m.synopsisGlossary(merging: ["素晴らしき日々": "美妙的日子"])["素晴らしき日々"] == "美妙的日子")
+    }
+
+    @Test func synopsisPromptUsesTargetLanguageAndNoContext() throws {
+        let provider = LLMProviderConfig(name: "t", style: .openAICompatible, baseURL: "https://example.com/v1", model: "m")
+        let translator = LLMTranslator(provider: provider, prompt: .synopsis(targetLanguage: "繁體中文"), apiKey: nil)
+        #expect(translator.systemPrompt().contains("游戏简介翻译成繁體中文"))
+        let request = TranslationRequest(text: "Hello.", context: [("a", "甲")], glossary: [:])
+        #expect(!translator.userMessage(request).contains("上文"))
+    }
+}
