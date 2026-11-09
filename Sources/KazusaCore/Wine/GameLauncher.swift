@@ -15,9 +15,8 @@ public struct GameExit: Sendable {
 public actor GameLauncher {
     private struct Session {
         var process: Process
-        var prefix: URL
-        var environment: [String: String]
-        var runtime: WineRuntime
+        /// Wine 会话才有：停止时要用同一套环境变量调 wineserver -k。
+        var wine: (runtime: WineRuntime, environment: [String: String])?
     }
 
     private let paths: KazusaPaths
@@ -54,7 +53,7 @@ public actor GameLauncher {
     ) async throws {
         guard sessions[game.id] == nil else { throw LaunchError.alreadyRunning }
         let exe = game.executableURL
-        guard FileManager.default.fileExists(atPath: exe.path) else {
+        guard !game.executable.isEmpty, FileManager.default.fileExists(atPath: exe.path) else {
             throw LaunchError.executableMissing(exe.path)
         }
         try paths.ensureDirectories()
@@ -74,12 +73,56 @@ public actor GameLauncher {
         let header = "=== Kazusa \(Date()) ===\nruntime: \(runtime.wineBinary.path)\nprefix: \(prefix.url.path)\nlocale: \(game.locale.posixLocale)\nexe: \(exe.path)\nwow64cpu fix: runtime \(runtimeFix), prefix \(prefixFix)\n\n"
         log.write(Data(header.utf8))
 
-        let process = Process()
-        process.executableURL = runtime.wineBinary
-        process.arguments = [exe.path] + game.arguments
-        process.environment = env
         // 很多 galgame 用相对路径读资源，工作目录必须是 exe 所在目录。
-        process.currentDirectoryURL = exe.deletingLastPathComponent()
+        let process = try start(game, program: runtime.wineBinary, arguments: [exe.path] + game.arguments,
+                                environment: env, workingDirectory: exe.deletingLastPathComponent(),
+                                log: log, logURL: logURL, onExit: onExit)
+        sessions[game.id] = Session(process: process, wine: (runtime, env))
+    }
+
+    /// 用打包的原生引擎（目前是 ONScripter）启动，不经过 Wine。
+    public func launchNative(
+        _ game: Game,
+        binary: URL,
+        arguments: [String],
+        onExit: @escaping @Sendable (GameExit) -> Void
+    ) async throws {
+        guard sessions[game.id] == nil else { throw LaunchError.alreadyRunning }
+        guard FileManager.default.fileExists(atPath: game.directory.path) else {
+            throw LaunchError.executableMissing(game.directory.path)
+        }
+        try paths.ensureDirectories()
+        var env = ProcessInfo.processInfo.environment
+        env["LANG"] = game.locale.posixLocale
+        env.merge(game.environment) { $1 }
+
+        let logURL = logFile(for: game.id)
+        FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        let log = try FileHandle(forWritingTo: logURL)
+        let quoted = arguments.map { $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
+        let header = "=== Kazusa \(Date()) ===\nbackend: native\nengine: \(binary.path)\nargs: \(quoted)\n\n"
+        log.write(Data(header.utf8))
+
+        let process = try start(game, program: binary, arguments: arguments, environment: env,
+                                workingDirectory: game.directory, log: log, logURL: logURL, onExit: onExit)
+        sessions[game.id] = Session(process: process, wine: nil)
+    }
+
+    private func start(
+        _ game: Game,
+        program: URL,
+        arguments: [String],
+        environment: [String: String],
+        workingDirectory: URL,
+        log: FileHandle,
+        logURL: URL,
+        onExit: @escaping @Sendable (GameExit) -> Void
+    ) throws -> Process {
+        let process = Process()
+        process.executableURL = program
+        process.arguments = arguments
+        process.environment = environment
+        process.currentDirectoryURL = workingDirectory
         process.standardOutput = log
         process.standardError = log
 
@@ -98,14 +141,15 @@ public actor GameLauncher {
             onExit(exit)
         }
         try process.run()
-        sessions[game.id] = Session(process: process, prefix: prefix.url, environment: env, runtime: runtime)
+        return process
     }
 
-    /// 结束游戏：先礼貌地终止，再杀掉前缀里的 wineserver（会结束同前缀的所有 Windows 进程）。
+    /// 结束游戏：先礼貌地终止；Wine 游戏再杀掉前缀里的 wineserver（会结束同前缀的所有 Windows 进程）。
     public func stop(_ id: UUID) async {
         guard let session = sessions[id] else { return }
         session.process.terminate()
-        _ = try? await ProcessRunner.run(session.runtime.wineserver, arguments: ["-k"], environment: session.environment)
+        guard let wine = session.wine else { return }
+        _ = try? await ProcessRunner.run(wine.runtime.wineserver, arguments: ["-k"], environment: wine.environment)
     }
 
     private func didExit(_ id: UUID) {

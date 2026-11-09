@@ -125,7 +125,9 @@ final class AppModel {
         }
         Task {
             let inspection = await Task.detached { GameInspector.inspect(directory: directory) }.value
-            let executable = isExe ? url.lastPathComponent : inspection.suggestedExecutable
+            // NScripter 游戏可以没有 exe（只有脚本和封包），用原生引擎运行。
+            let nativeOnly = NativeEngines.supports(inspection.engine.engine) && onscripterBinary != nil
+            let executable = isExe ? url.lastPathComponent : inspection.suggestedExecutable ?? (nativeOnly ? "" : nil)
             guard let executable else {
                 alert = AlertItem(title: "没有找到游戏程序", message: "“\(directory.lastPathComponent)”里没有 .exe 文件。")
                 return
@@ -337,7 +339,18 @@ final class AppModel {
 
     // MARK: - 启动
 
+    /// 打包的 ONScripter；开发时用仓库里构建好的。
+    let onscripterBinary = ONScripter.binary()
+
+    func backend(for game: Game) -> GameBackend {
+        game.resolvedBackend(nativeAvailable: onscripterBinary != nil)
+    }
+
     func launch(_ game: Game) {
+        if backend(for: game) == .native {
+            launchNative(game)
+            return
+        }
         if SystemCheck.isAppleSilicon && !SystemCheck.isRosettaInstalled {
             alert = AlertItem(
                 title: "需要安装 Rosetta 2",
@@ -356,6 +369,33 @@ final class AppModel {
             defer { busyMessage = nil }
             do {
                 try await launcher.launch(game, runtime: runtime, cjkFont: settings.cjkFont) { [weak self] exit in
+                    Task { @MainActor in self?.didExit(exit) }
+                }
+                if game.translation.enabled {
+                    overlay.show(game: game)
+                }
+            } catch {
+                runningGameIDs.remove(game.id)
+                report(error)
+            }
+        }
+    }
+
+    private func launchNative(_ game: Game) {
+        guard NativeEngines.supports(game.engine) else {
+            alert = AlertItem(title: "没有对应的原生引擎",
+                              message: "\(game.engine.displayName) 目前只能用 Wine 运行，请把“运行方式”改成 Wine。")
+            return
+        }
+        guard let binary = onscripterBinary else {
+            alert = AlertItem(title: "找不到 ONScripter", message: "这个 Kazusa 没有打包 ONScripter，请把“运行方式”改成 Wine。")
+            return
+        }
+        runningGameIDs.insert(game.id)
+        Task {
+            do {
+                let arguments = await Task.detached { ONScripter.launchArguments(for: game) }.value
+                try await launcher.launchNative(game, binary: binary, arguments: arguments) { [weak self] exit in
                     Task { @MainActor in self?.didExit(exit) }
                 }
                 if game.translation.enabled {

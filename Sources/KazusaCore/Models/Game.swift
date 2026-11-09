@@ -80,6 +80,8 @@ public struct Game: Codable, Identifiable, Hashable, Sendable {
     public var vndbID: String?
     /// 从 VNDB 拉来的简介、品牌等资料。没有关联条目或还没拉取时为空。
     public var metadata: GameMetadata?
+    /// 运行方式；为空表示自动（有原生引擎就用原生，见 `resolvedBackend`）。
+    public var backend: GameBackend?
 
     public init(
         id: UUID = UUID(),
@@ -96,7 +98,8 @@ public struct Game: Codable, Identifiable, Hashable, Sendable {
         lastPlayedAt: Date? = nil,
         totalPlaySeconds: TimeInterval = 0,
         vndbID: String? = nil,
-        metadata: GameMetadata? = nil
+        metadata: GameMetadata? = nil,
+        backend: GameBackend? = nil
     ) {
         self.id = id
         self.title = title
@@ -113,6 +116,7 @@ public struct Game: Codable, Identifiable, Hashable, Sendable {
         self.totalPlaySeconds = totalPlaySeconds
         self.vndbID = vndbID
         self.metadata = metadata
+        self.backend = backend
     }
 
     public var executableURL: URL {

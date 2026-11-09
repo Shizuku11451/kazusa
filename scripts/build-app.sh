@@ -34,6 +34,12 @@ cp -R ThirdParty/wow64cpu-rosetta/prebuilt ThirdParty/wow64cpu-rosetta/COPYING.L
       ThirdParty/wow64cpu-rosetta/wow64cpu-rosetta-farjump.patch ThirdParty/wow64cpu-rosetta/README.md \
       "$APP/Contents/Resources/wow64cpu-rosetta/"
 
+# 原生运行 NScripter 游戏的 ONScripter（GPL-2.0-or-later，独立程序），见 ThirdParty/onscripter-yuri。
+ONS="$APP/Contents/Resources/onscripter-yuri"
+mkdir -p "$ONS"
+cp ThirdParty/onscripter-yuri/prebuilt/onsyuri ThirdParty/onscripter-yuri/COPYING ThirdParty/onscripter-yuri/README.md "$ONS/"
+cp -R ThirdParty/onscripter-yuri/licenses "$ONS/"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -57,5 +63,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 # ad-hoc 签名：屏幕录制权限是按签名记的，不签名每次重新构建都得重新授权。
+# 内嵌的可执行文件要先单独签名，再签整个 .app。
+codesign --force --sign - --timestamp=none "$ONS/onsyuri"
 codesign --force --sign - --timestamp=none "$APP"
 echo "✅ $APP"

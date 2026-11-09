@@ -37,13 +37,18 @@ struct GameDetailView: View {
             infoSection
 
             Section("运行") {
-                Picker("主程序", selection: $game.executable) {
-                    ForEach(executableOptions, id: \.self) { Text($0).tag($0) }
+                backendPicker
+                if isWine {
+                    Picker("主程序", selection: $game.executable) {
+                        ForEach(executableOptions, id: \.self) { Text($0.isEmpty ? "（无）" : $0).tag($0) }
+                    }
                 }
-                Picker("区域（转区）", selection: localeBinding) {
+                Picker(isWine ? "区域（转区）" : "区域（脚本编码）", selection: localeBinding) {
                     ForEach(GameLocale.allCases, id: \.self) { Text($0.displayName).tag($0) }
                 }
-                TextField("Wine 前缀", text: $game.prefixName)
+                if isWine {
+                    TextField("Wine 前缀", text: $game.prefixName)
+                }
                 TextField("启动参数", text: $argumentsText)
                     .onSubmit(commitArguments)
                 LabeledContent("引擎") {
@@ -52,6 +57,9 @@ struct GameDetailView: View {
                             ForEach(EngineKind.allCases, id: \.self) { Text($0.displayName).tag($0) }
                         }
                         .labelsHidden()
+                        .onChange(of: game.engine) {
+                            if game.backend == .native && !NativeEngines.supports(game.engine) { game.backend = nil }
+                        }
                         if let detection, !detection.evidence.isEmpty {
                             Text("依据：" + detection.evidence.prefix(3).joined(separator: "、"))
                                 .font(.caption2).foregroundStyle(.secondary)
@@ -75,7 +83,9 @@ struct GameDetailView: View {
             Section("文件") {
                 Button("在 Finder 中显示游戏") { NSWorkspace.shared.activateFileViewerSelecting([game.executableURL]) }
                 Button("打开日志") { open(model.logFile(for: game)) }
-                Button("打开 C 盘（前缀）") { open(model.prefixDriveC(for: game)) }
+                if isWine {
+                    Button("打开 C 盘（前缀）") { open(model.prefixDriveC(for: game)) }
+                }
                 Text(game.directory.path).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
             }
 
@@ -206,6 +216,37 @@ struct GameDetailView: View {
             }
             .buttonStyle(.link).font(.caption)
         }
+    }
+
+    private var isWine: Bool { model.backend(for: game) == .wine }
+
+    /// 运行方式：自动 / Wine / 原生引擎。自动时在选项里注明实际会用哪个。
+    private var backendPicker: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Picker("运行方式", selection: $game.backend) {
+                Text("自动（\(backendName(automaticBackend))）").tag(GameBackend?.none)
+                Text("Wine").tag(GameBackend?.some(.wine))
+                if let native = NativeEngines.name(for: game.engine) {
+                    Text("原生（\(native)）").tag(GameBackend?.some(.native))
+                }
+            }
+            if model.backend(for: game) == .native {
+                Text(model.onscripterBinary == nil
+                     ? "这个 Kazusa 没有打包 ONScripter，无法用原生方式运行。"
+                     : "不经过 Wine，用 ONScripter 直接读取脚本和封包；存档仍在游戏目录里，和 Windows 版通用。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var automaticBackend: GameBackend {
+        var copy = game
+        copy.backend = nil
+        return model.backend(for: copy)
+    }
+
+    private func backendName(_ backend: GameBackend) -> String {
+        backend == .native ? NativeEngines.name(for: game.engine) ?? "原生" : "Wine"
     }
 
     private var executableOptions: [String] {

@@ -10,8 +10,9 @@ let usage = """
   runtimes                          列出找到的 Wine 运行时
   install-runtime <压缩包> [名字]     安装 Wine 运行时到 Runtimes/
   inspect <游戏目录>                 识别引擎、主程序和区域
-  run <游戏目录或 exe> [--locale ja|zhs|zht] [--prefix 名字] [--debug]
-                                    启动游戏并等待退出（日志输出到终端）
+  run <游戏目录或 exe> [--locale ja|zhs|zht] [--prefix 名字] [--backend wine|native] [--debug]
+                                    启动游戏并等待退出（日志输出到终端）；
+                                    NScripter 游戏默认用打包的 ONScripter 原生运行
   wine [--locale ...] [--prefix ...] <参数...>
                                     在前缀里执行任意 wine 命令（如 winecfg）
   cover <标题>                       在 VNDB 上搜索封面（只打印结果，不下载）
@@ -86,28 +87,45 @@ case "run":
     let locale = parseLocale(option("--locale"))
     let prefixName = option("--prefix")
     let debug = flag("--debug")
+    let backendOption: GameBackend? = option("--backend").map { name in
+        guard let backend = GameBackend(rawValue: name) else { fail("未知运行方式 \(name)，可选 wine / native") }
+        return backend
+    }
     guard let target = args.first else { fail("缺少游戏目录或 exe") }
     let url = URL(fileURLWithPath: target)
     let isExe = url.pathExtension.lowercased() == "exe"
     let dir = isExe ? url.deletingLastPathComponent() : url
     let inspection = GameInspector.inspect(directory: dir)
-    guard let exe = isExe ? url.lastPathComponent : inspection.suggestedExecutable else { fail("没有找到 exe") }
-    var game = Game(title: inspection.title, directory: dir, executable: exe,
-                    engine: inspection.engine.engine, locale: locale ?? inspection.suggestedLocale)
-    if let prefixName { game.prefixName = prefixName }
-    if debug { game.environment["WINEDEBUG"] = "err+all,fixme-all" }
-    let runtime = requireRuntime()
-    print("引擎 \(game.engine.displayName) · 区域 \(game.locale.displayName) · 前缀 \(game.prefixName)")
-    print("运行时 \(runtime.wineBinary.path)")
-    print("启动 \(game.executable)…（首次会初始化前缀，需要一两分钟）")
-
+    var game = Game(title: inspection.title, directory: dir,
+                    executable: isExe ? url.lastPathComponent : inspection.suggestedExecutable ?? "",
+                    engine: inspection.engine.engine, locale: locale ?? inspection.suggestedLocale, backend: backendOption)
+    let onscripter = ONScripter.binary()
+    let backend = game.resolvedBackend(nativeAvailable: onscripter != nil)
     let launcher = GameLauncher(paths: paths)
+    let start: (@escaping @Sendable (GameExit) -> Void) async throws -> Void
+    if backend == .native {
+        guard NativeEngines.supports(game.engine) else { fail("\(game.engine.displayName) 没有原生引擎，只能用 Wine") }
+        guard let onscripter else { fail("没有找到 ONScripter，先运行 ThirdParty/onscripter-yuri/build.sh") }
+        let arguments = ONScripter.launchArguments(for: game)
+        print("引擎 \(game.engine.displayName) · 区域 \(game.locale.displayName) · 原生 ONScripter")
+        print("onsyuri \(arguments.joined(separator: " "))")
+        start = { try await launcher.launchNative(game, binary: onscripter, arguments: arguments, onExit: $0) }
+    } else {
+        guard !game.executable.isEmpty else { fail("没有找到 exe") }
+        if let prefixName { game.prefixName = prefixName }
+        if debug { game.environment["WINEDEBUG"] = "err+all,fixme-all" }
+        let runtime = requireRuntime()
+        print("引擎 \(game.engine.displayName) · 区域 \(game.locale.displayName) · 前缀 \(game.prefixName)")
+        print("运行时 \(runtime.wineBinary.path)")
+        print("启动 \(game.executable)…（首次会初始化前缀，需要一两分钟）")
+        let wineGame = game
+        start = { try await launcher.launch(wineGame, runtime: runtime, cjkFont: "", onExit: $0) }
+    }
+
     let exit: GameExit = try await withCheckedThrowingContinuation { continuation in
         Task {
             do {
-                try await launcher.launch(game, runtime: runtime, cjkFont: "") {
-                    continuation.resume(returning: $0)
-                }
+                try await start { continuation.resume(returning: $0) }
                 print("日志：\(await launcher.logFile(for: game.id).path)")
             } catch {
                 continuation.resume(throwing: error)

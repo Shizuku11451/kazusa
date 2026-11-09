@@ -18,6 +18,7 @@
 | 游戏库 | 拖入文件夹或 exe 即可导入。自动识别引擎（KiriKiri、NScripter、Ren'Py、Unity 等 15 种）和主程序，并按文件名判断是汉化版还是日文原版 |
 | 封面 | 导入时自动获取：先找游戏目录里的 cover / package 等图片，没有就按标题（会去掉“HD版”“汉化版”、版本号等修饰）查 [VNDB](https://vndb.org)，只自动采用非成人的封面。也可以右键“搜索封面…”手动挑选，或者把图片拖到详情页。联网时只会把游戏标题发送给 api.vndb.org |
 | 资料 | 匹配到 VNDB 条目后自动拉取中文名、原名、品牌、发售日、平均游玩时长、评分和简介（去掉剧透段落）。用目录里的图当封面的游戏也会按标题匹配一次；匹配错了可以在详情页解除关联或手动搜索。VNDB 的简介大多是英文，可以一键用设置里的 LLM 翻成中文（流式显示，译文会保存，可切回原文） |
+| 原生运行 | NScripter 游戏默认用打包的 [ONScripter](ThirdParty/onscripter-yuri/)（OnscripterYuri）直接运行，不需要 Wine 和 Rosetta：自动判断脚本编码（Shift-JIS / GBK / UTF-8），按区域选系统字体，存档仍在游戏目录。在详情页的“运行方式”里可以改回 Wine |
 | 转区 | 每个游戏可选 简中 / 繁中 / 日文 区域，对应 `zh_CN` / `zh_TW` / `ja_JP` 的 locale，每种区域共用一个 Wine 前缀 |
 | 字体 | 按区域把 MS Gothic、SimSun 等替换成 macOS 自带字体（日文用ヒラギノ角ゴシック，中文用冬青黑体），并配置字体链接，菜单和对话框也不会出方块字 |
 | 运行时 | 自动发现 Wine（/Applications、Homebrew），也可以从 `.tar.xz` 导入到 Kazusa 自己的 Runtimes 目录 |
@@ -41,6 +42,7 @@ swift run kazusa-cli        # 开发用命令行：安装运行时、识别游�
 2. **Wine**：从 [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds/releases) 下载 `wine-staging-*-osx64.tar.xz`，在 设置 → 运行环境 → 从压缩包安装（或 `swift run kazusa-cli install-runtime <压缩包>`）。
    > Homebrew 的 `wine-stable` / `wine@staging` cask 因为过不了 Gatekeeper 检查，已在 2026-09-01 被禁用。
    > 较新的 macOS（已确认 27.x）上 Rosetta 处理 WoW64 模式切换有 bug，32 位游戏会随机崩溃或卡死。Kazusa 启动游戏时会自动给托管的运行时和前缀换上修复版 `wow64cpu.dll`（目前预编译了 Wine 11.21 的），详见 [ThirdParty/wow64cpu-rosetta](ThirdParty/wow64cpu-rosetta/README.md)。
+   > NScripter 游戏默认用打包的 ONScripter 运行，不需要前两步。
 3. 用 OCR 翻译时需要**屏幕录制权限**：系统设置 → 隐私与安全性 → 屏幕与系统录音
 
 ## 代码结构
@@ -50,6 +52,7 @@ Sources/
   KazusaCore/              # 与 UI 无关的核心逻辑，全部有单元测试
     Engine/                # 引擎识别、主程序打分、区域猜测
     Wine/                  # 运行时发现与安装、前缀、环境变量、启动器
+    Native/                # 原生引擎（ONScripter）：查找、脚本编码、字体、启动参数
     Covers/                # 封面缓存、游戏目录内找图、VNDB 查询
     Translation/           # LLM 配置、请求构造与解析、翻译会话（去重、上文、缓存）
     Models/ Library/ Settings/ Support/
@@ -63,7 +66,10 @@ Sources/
 
 ## 路线图
 
-- [ ] **原生后端**：KiriKiri 走 krkrsdl2，NScripter 走 ONScripter，System4 走 xsystem4。这些游戏可以完全不用 Wine
+- [ ] **原生后端**：这些游戏可以完全不用 Wine
+  - [x] NScripter 走 ONScripter（打包进 Kazusa.app）
+  - [ ] KiriKiri 走 krkrsdl2（需要先确认未修改的商业游戏能不能跑）
+  - [ ] System4 走 xsystem4
 - [ ] **文本钩子**：自己实现 Textractor 式的 hook，直接从游戏进程里取文本，比 OCR 更准；剪贴板模式现在可以先搭配外部工具使用
 - [ ] 视频解码：给前缀装 LAV/quartz 一类的方案，解决 OP/ED 黑屏
 - [x] 从 VNDB 拉取封面
@@ -88,14 +94,17 @@ Copyright (C) 2026 Shizuku11451
 
 ### 第三方组件
 
-Kazusa **不链接**下列组件，只在运行时把它们作为独立程序调用，或使用系统自带的部分。唯一随 Kazusa 分发的第三方文件是修复版 `wow64cpu.dll`（LGPL-2.1-or-later，补丁、构建脚本和许可证都在 [ThirdParty/wow64cpu-rosetta](ThirdParty/wow64cpu-rosetta/)）：
+Kazusa **不链接**下列组件，只在运行时把它们作为独立程序调用，或使用系统自带的部分。随 Kazusa 分发的第三方文件只有两个，构建脚本和许可证都在各自的目录里：
+
+- 修复版 `wow64cpu.dll`（LGPL-2.1-or-later），见 [ThirdParty/wow64cpu-rosetta](ThirdParty/wow64cpu-rosetta/)；
+- ONScripter 程序 `onsyuri`（GPL-2.0-or-later，静态链接了 zlib 许可的 SDL2、FTL 许可的 FreeType、MIT 许可的 HarfBuzz 和 Lua），见 [ThirdParty/onscripter-yuri](ThirdParty/onscripter-yuri/)。
 
 | 组件 | 许可证 | 使用方式 |
 |---|---|---|
 | [Wine](https://www.winehq.org/) | LGPL-2.1-or-later | 用户自行安装，或从压缩包导入；作为子进程调用 |
 | Rosetta 2 | Apple 专有 | macOS 系统组件，由用户通过 `softwareupdate` 安装 |
 | SwiftUI / ScreenCaptureKit / Vision / Security | Apple SDK | 系统框架 |
-| 冬青黑体等系统字体 | Apple 专有 | 只在 Wine 注册表里引用字体名，不分发字体文件 |
+| 冬青黑体等系统字体 | Apple 专有 | 只在 Wine 注册表里引用字体名、把系统字体路径传给 ONScripter，不分发字体文件 |
 
 翻译功能会把识别到的文本发给**用户自己配置**的 LLM 服务，请遵守对应服务的使用条款。
 
