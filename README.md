@@ -74,7 +74,7 @@ Sources/
 - [x] 修复 macOS 27 上 Rosetta 导致 32 位游戏随机崩溃 / 卡死（打补丁的 `wow64cpu.dll`）
 - [ ] 为更多 Wine 版本预编译 `wow64cpu.dll`（目前只有 11.21）
 - [x] 应用图标、通用二进制（Apple 芯片 + Intel）打包
-- [ ] 发布第一个 Release（v0.1.0）
+- [x] 发布第一个 Release（v0.1.0）
 
 ## 许可证
 
