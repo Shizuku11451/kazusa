@@ -10,6 +10,7 @@ struct GameDetailView: View {
     @Binding var game: Game
 
     @State private var isCoverDropTargeted = false
+    @State private var restoreCandidate: SaveBackups.Backup?
     @State private var isSynopsisExpanded = false
     @State private var showsOriginalSynopsis = false
 
@@ -286,12 +287,42 @@ struct GameDetailView: View {
                     Button("打开 C 盘（前缀）") { open(model.prefixDriveC(for: game)) }
                 }
             }
+            Section("存档") { savesMenu }
             Section {
                 Button("从游戏库移除", role: .destructive) { model.remove(game) }
             }
         } label: {
             Label("更多", systemImage: "ellipsis.circle")
         }
+        .confirmationDialog(
+            "用 \(restoreCandidate?.date.formatted(date: .abbreviated, time: .shortened) ?? "") 的备份替换现在的存档？",
+            isPresented: Binding(get: { restoreCandidate != nil }, set: { if !$0 { restoreCandidate = nil } }),
+            presenting: restoreCandidate
+        ) { backup in
+            Button("恢复", role: .destructive) { model.restoreSaves(backup, for: game) }
+        } message: { _ in
+            Text("现在的存档会先自动备份一份（标着“恢复前”）。")
+        }
+    }
+
+    @ViewBuilder
+    private var savesMenu: some View {
+        let busy = model.savesBusy.contains(game.id)
+        Button("立即备份存档") { model.backUpSaves(for: game) }
+            .disabled(busy || (game.saveLocations ?? []).isEmpty)
+        let backups = model.saveBackups(for: game)
+        Menu("恢复存档") {
+            if backups.isEmpty {
+                Text("还没有备份。存档后退出游戏会自动备份。")
+            }
+            ForEach(backups.prefix(30)) { backup in
+                Button("\(backup.date.formatted(date: .abbreviated, time: .shortened))（\(backup.kind.displayName)）") {
+                    restoreCandidate = backup
+                }
+            }
+        }
+        .disabled(busy || backups.isEmpty)
+        Button("打开备份文件夹") { model.openBackupsFolder(for: game) }
     }
 
     private func open(_ url: URL) {

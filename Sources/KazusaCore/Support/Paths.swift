@@ -32,6 +32,13 @@ public struct KazusaPaths: Sendable {
     /// 每个游戏的翻译记录。
     public var translationsDir: URL { root.appendingPathComponent("Translations", isDirectory: true) }
 
+    /// 存档备份。
+    public var backupsDir: URL { root.appendingPathComponent("Backups", isDirectory: true) }
+
+    public func saveBackups(for gameID: UUID) -> SaveBackups {
+        SaveBackups(directory: backupsDir.appendingPathComponent(gameID.uuidString, isDirectory: true))
+    }
+
     public func translationStore(for gameID: UUID) -> TranslationStore {
         TranslationStore(fileURL: translationsDir.appendingPathComponent("\(gameID.uuidString).jsonl"))
     }

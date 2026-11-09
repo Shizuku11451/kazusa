@@ -66,6 +66,9 @@ public actor GameLauncher {
         // 先修运行时，再建 / 更新前缀，最后补前缀里的副本（见 RosettaWoW64Fix）。
         let runtimeFix = try await RosettaWoW64Fix.applyToRuntime(runtime, paths: paths)
         let prefix = WinePrefix(name: game.prefixName, paths: paths)
+        if game.usesExclusivePrefix {
+            try prefix.cloneIfMissing(from: WinePrefix(name: game.locale.defaultPrefixName, paths: paths))
+        }
         try await prefix.prepare(runtime: runtime, locale: game.locale, cjkFont: cjkFont)
         let prefixFix = try await RosettaWoW64Fix.applyToPrefix(prefix.url, runtime: runtime, paths: paths)
         // 汉化版常要求“先安装 font.ttf”：自动装进前缀。

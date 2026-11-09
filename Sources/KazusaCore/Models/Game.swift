@@ -99,6 +99,8 @@ public struct Game: Codable, Identifiable, Hashable, Sendable {
     public var metadata: GameMetadata?
     /// 运行方式；为空表示自动（有原生引擎就用原生，见 `resolvedBackend`）。
     public var backend: GameBackend?
+    /// 找到过的存档位置（游戏退出后按改过的文件自动发现）。旧的游戏库里没有这个字段。
+    public var saveLocations: [SaveLocation]?
 
     public init(
         id: UUID = UUID(),
@@ -138,5 +140,16 @@ public struct Game: Codable, Identifiable, Hashable, Sendable {
 
     public var executableURL: URL {
         directory.appendingPathComponent(executable)
+    }
+
+    /// 这个游戏专用前缀的名字。
+    public var exclusivePrefixName: String {
+        "game-" + id.uuidString.prefix(8).lowercased()
+    }
+
+    /// 用自己的前缀，不和同区域的其他游戏共用。
+    public var usesExclusivePrefix: Bool {
+        get { prefixName == exclusivePrefixName }
+        set { prefixName = newValue ? exclusivePrefixName : locale.defaultPrefixName }
     }
 }

@@ -70,6 +70,26 @@ public struct WinePrefix: Sendable {
 
     public var driveC: URL { url.appendingPathComponent("drive_c", isDirectory: true) }
 
+    public var exists: Bool { FileManager.default.fileExists(atPath: url.path) }
+
+    /// 新建的专用前缀从同区域的共用前缀复制一份，省掉几十秒的 wineboot。
+    /// APFS 上用 clonefile，瞬间完成、不额外占空间（之后改了哪个文件才复制哪个）。
+    /// 共用前缀还没初始化时什么都不做，交给 prepare 从头初始化。
+    @discardableResult
+    public func cloneIfMissing(from template: WinePrefix) throws -> Bool {
+        let fm = FileManager.default
+        guard !exists, template.isInitialized else { return false }
+        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // 先复制到临时名字再改名：复制到一半被打断时不会留下一个带着“已初始化”标记的半成品。
+        let staging = url.deletingLastPathComponent().appendingPathComponent(".\(name)-cloning-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: staging) }
+        if clonefile(template.url.path, staging.path, 0) != 0 {
+            try fm.copyItem(at: template.url, to: staging)
+        }
+        try fm.moveItem(at: staging, to: url)
+        return true
+    }
+
     /// 初始化前缀并写入中日文字体映射。已初始化时只刷新字体映射。
     public func prepare(runtime: WineRuntime, locale: GameLocale, cjkFont: String) async throws {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

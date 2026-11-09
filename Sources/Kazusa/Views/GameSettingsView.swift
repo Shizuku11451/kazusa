@@ -46,7 +46,12 @@ struct GameSettingsView: View {
                         ForEach(GameLocale.allCases, id: \.self) { Text($0.displayName).tag($0) }
                     }
                     if isWine {
-                        TextField("Wine 前缀", text: $game.prefixName)
+                        Toggle(isOn: $game.usesExclusivePrefix) {
+                            Text("使用独立前缀")
+                            Text(game.usesExclusivePrefix
+                                 ? "这个游戏有自己的 Wine 环境（\(game.prefixName)），装的东西、改的设置不影响别的游戏。"
+                                 : "现在和同区域的游戏共用“\(game.prefixName)”。打开后从它复制一份给这个游戏单独用，不占额外空间。存在前缀里的存档不会跟着搬过去。")
+                        }
                     }
                     TextField("启动参数", text: $argumentsText)
                     LabeledContent("引擎") {
@@ -107,6 +112,16 @@ struct GameSettingsView: View {
                 Section("位置") {
                     LabeledContent("游戏目录") {
                         Text(game.directory.path).textSelection(.enabled).lineLimit(2).truncationMode(.middle)
+                    }
+                    LabeledContent("存档") {
+                        if let locations = game.saveLocations, !locations.isEmpty {
+                            VStack(alignment: .trailing, spacing: 2) {
+                                ForEach(locations, id: \.self) { Text($0.displayName) }
+                            }
+                            .textSelection(.enabled)
+                        } else {
+                            Text("还没找到。存个档再退出游戏，会自动找到并备份。").foregroundStyle(.secondary)
+                        }
                     }
                 }
             }

@@ -493,6 +493,7 @@ final class AppModel {
         games[i].lastPlayedAt = exit.startedAt
         games[i].totalPlaySeconds += exit.duration
         saveGames()
+        Task { await backUpAfterSession(games[i], since: exit.startedAt) }
         // 几秒内就退出且返回码非 0，多半是没跑起来，提示看日志。
         if exit.duration < 5 && exit.exitCode != 0 {
             alert = AlertItem(
@@ -508,6 +509,97 @@ final class AppModel {
 
     func prefixDriveC(for game: Game) -> URL {
         WinePrefix(name: game.prefixName, paths: paths).driveC
+    }
+
+    // MARK: - 存档备份
+
+    /// 正在备份 / 恢复存档的游戏。
+    var savesBusy: Set<UUID> = []
+
+    /// 存档可能在前缀里的只有 Wine 游戏。
+    private func saveDriveC(for game: Game) -> URL? {
+        backend(for: game) == .wine ? prefixDriveC(for: game) : nil
+    }
+
+    func saveBackups(for game: Game) -> [SaveBackups.Backup] {
+        paths.saveBackups(for: game.id).list()
+    }
+
+    func openBackupsFolder(for game: Game) {
+        let dir = paths.saveBackups(for: game.id).directory
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(dir)
+    }
+
+    /// 游戏退出后：看这次改了哪些文件，记下存档位置；有改动就自动备份一次。全程静默，出错只写日志。
+    private func backUpAfterSession(_ game: Game, since: Date) async {
+        let directory = game.directory
+        let driveC = saveDriveC(for: game)
+        let modified = await Task.detached {
+            SaveLocator.modifiedLocations(gameDirectory: directory, driveC: driveC, since: since)
+        }.value
+        guard !modified.isEmpty, let i = games.firstIndex(where: { $0.id == game.id }) else { return }
+        let locations = Set(games[i].saveLocations ?? []).union(modified).sorted()
+        if locations != games[i].saveLocations {
+            games[i].saveLocations = locations
+            saveGames()
+        }
+        savesBusy.insert(game.id)
+        defer { savesBusy.remove(game.id) }
+        do {
+            try await paths.saveBackups(for: game.id).create(locations: locations, gameDirectory: directory,
+                                                             driveC: driveC, kind: .automatic)
+        } catch {
+            appendLog("存档自动备份失败：\(error.localizedDescription)", for: game)
+        }
+    }
+
+    func backUpSaves(for game: Game) {
+        guard !savesBusy.contains(game.id) else { return }
+        savesBusy.insert(game.id)
+        Task {
+            defer { savesBusy.remove(game.id) }
+            do {
+                try await paths.saveBackups(for: game.id).create(locations: game.saveLocations ?? [], gameDirectory: game.directory,
+                                                                 driveC: saveDriveC(for: game), kind: .manual)
+            } catch {
+                alert = AlertItem(title: "没能备份存档", message: error.localizedDescription)
+            }
+        }
+    }
+
+    /// 用备份替换现在的存档。先把现在的存档备份一份（“恢复前”），恢复错了还能换回来。
+    func restoreSaves(_ backup: SaveBackups.Backup, for game: Game) {
+        guard !runningGameIDs.contains(game.id) else {
+            alert = AlertItem(title: "游戏正在运行", message: "请先退出“\(game.title)”再恢复存档。")
+            return
+        }
+        guard !savesBusy.contains(game.id) else { return }
+        savesBusy.insert(game.id)
+        Task {
+            defer { savesBusy.remove(game.id) }
+            let backups = paths.saveBackups(for: game.id)
+            let driveC = saveDriveC(for: game)
+            do {
+                do {
+                    try await backups.create(locations: game.saveLocations ?? [], gameDirectory: game.directory,
+                                             driveC: driveC, kind: .beforeRestore)
+                } catch SaveBackups.BackupError.nothingToBackUp {
+                    // 现在没有存档，不用先备份。
+                }
+                try await backups.restore(backup, gameDirectory: game.directory, driveC: driveC)
+                alert = AlertItem(title: "已恢复存档", message: "恢复前的存档也备份了一份（标着“恢复前”），需要时可以再换回来。")
+            } catch {
+                alert = AlertItem(title: "没能恢复存档", message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func appendLog(_ message: String, for game: Game) {
+        guard let handle = try? FileHandle(forWritingTo: logFile(for: game)) else { return }
+        defer { try? handle.close() }
+        _ = try? handle.seekToEnd()
+        try? handle.write(contentsOf: Data("\n[Kazusa] \(message)\n".utf8))
     }
 
     // MARK: - 文本钩子
