@@ -12,10 +12,12 @@ struct GameDetailView: View {
     @State private var detection: EngineDetection?
     @State private var argumentsText = ""
     @State private var glossaryText = ""
+    @State private var isCoverDropTargeted = false
 
     var body: some View {
         Form {
             Section {
+                coverSection
                 TextField("标题", text: $game.title)
                 HStack {
                     if model.runningGameIDs.contains(game.id) {
@@ -79,6 +81,46 @@ struct GameDetailView: View {
         }
         .formStyle(.grouped)
         .task(id: game.id) { await reload() }
+    }
+
+    /// 封面预览：可以把图片拖到这里替换。
+    private var coverSection: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Group {
+                if let cover = model.coverImages[game.id] {
+                    Image(nsImage: cover).resizable().scaledToFill()
+                } else {
+                    Rectangle().fill(.quaternary)
+                        .overlay { Image(systemName: "photo").font(.title).foregroundStyle(.secondary) }
+                }
+            }
+            .frame(width: 96, height: 128)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                if isCoverDropTargeted {
+                    RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor, lineWidth: 3)
+                }
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+                guard let url = urls.first else { return false }
+                model.setCover(fromFile: url, for: game.id)
+                return true
+            } isTargeted: { isCoverDropTargeted = $0 }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("封面").font(.headline)
+                Button("搜索 VNDB…") { model.coverSearch = .init(id: game.id) }
+                Button("选择图片…") { model.chooseCoverFile(for: game.id) }
+                if model.coverImages[game.id] != nil {
+                    Button("移除", role: .destructive) { model.removeCover(for: game.id) }
+                }
+                if let id = game.vndbID, let url = URL(string: "https://vndb.org/\(id)") {
+                    Link("VNDB \(id)", destination: url).font(.caption)
+                }
+                Text("也可以把图片拖到左边").font(.caption2).foregroundStyle(.secondary)
+            }
+            .buttonStyle(.link)
+        }
     }
 
     private var executableOptions: [String] {

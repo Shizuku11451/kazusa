@@ -22,6 +22,7 @@ struct LibraryView: View {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
                         ForEach(model.games) { game in
                             GameCard(game: game,
+                                     cover: model.coverImages[game.id],
                                      isSelected: game.id == model.selectedGameID,
                                      isRunning: model.runningGameIDs.contains(game.id))
                                 .onTapGesture { model.selectedGameID = game.id }
@@ -29,6 +30,12 @@ struct LibraryView: View {
                                 .contextMenu {
                                     Button("启动") { model.launch(game) }
                                     Button("在 Finder 中显示") { NSWorkspace.shared.activateFileViewerSelecting([game.executableURL]) }
+                                    Divider()
+                                    Button("搜索封面…") { model.coverSearch = .init(id: game.id) }
+                                    Button("选择封面图片…") { model.chooseCoverFile(for: game.id) }
+                                    if model.coverImages[game.id] != nil {
+                                        Button("移除封面") { model.removeCover(for: game.id) }
+                                    }
                                     Divider()
                                     Button("从游戏库移除", role: .destructive) { model.remove(game) }
                                 }
@@ -80,6 +87,9 @@ struct LibraryView: View {
             }
             .inspectorColumnWidth(min: 300, ideal: 340, max: 460)
         }
+        .sheet(item: $model.coverSearch) { request in
+            CoverSearchView(gameID: request.id)
+        }
         .alert(item: $model.alert) { item in
             Alert(title: Text(item.title), message: Text(item.message))
         }
@@ -99,6 +109,7 @@ struct LibraryView: View {
 
 struct GameCard: View {
     let game: Game
+    let cover: NSImage?
     let isSelected: Bool
     let isRunning: Bool
 
@@ -109,10 +120,18 @@ struct GameCard: View {
                     .fill(gradient)
                     .aspectRatio(3 / 4, contentMode: .fit)
                     .overlay {
-                        Text(String(game.title.prefix(1)))
-                            .font(.system(size: 56, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.9))
+                        if let cover {
+                            Image(nsImage: cover)
+                                .resizable()
+                                .scaledToFill()
+                        } else {
+                            Text(String(game.title.prefix(1)))
+                                .font(.system(size: 56, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
                     }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .shadow(color: .black.opacity(cover == nil ? 0 : 0.18), radius: 4, y: 2)
                 if isRunning {
                     Label("运行中", systemImage: "play.fill")
                         .font(.caption2.bold())

@@ -27,9 +27,11 @@ public struct KazusaPaths: Sendable {
     public var logsDir: URL { root.appendingPathComponent("Logs", isDirectory: true) }
     /// 用户自己编译的兼容性修复（比如其他 Wine 版本的 wow64cpu.dll）。
     public var fixesDir: URL { root.appendingPathComponent("Fixes", isDirectory: true) }
+    /// 游戏封面缓存。
+    public var coversDir: URL { root.appendingPathComponent("Covers", isDirectory: true) }
 
     public func ensureDirectories() throws {
-        for dir in [root, prefixesDir, runtimesDir, logsDir] {
+        for dir in [root, prefixesDir, runtimesDir, logsDir, coversDir] {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
     }

@@ -14,6 +14,7 @@ let usage = """
                                     启动游戏并等待退出（日志输出到终端）
   wine [--locale ...] [--prefix ...] <参数...>
                                     在前缀里执行任意 wine 命令（如 winecfg）
+  cover <标题>                       在 VNDB 上搜索封面（只打印结果，不下载）
 """
 
 let paths = KazusaPaths.default
@@ -129,6 +130,17 @@ case "wine":
     let result = try await ProcessRunner.run(runtime.wineBinary, arguments: args, environment: env)
     print(result.output)
     exit(result.exitCode)
+
+case "cover":
+    let title = args.joined(separator: " ")
+    guard !title.isEmpty else { fail("需要游戏标题") }
+    for query in VNDB.searchQueries(for: title) {
+        print("搜索：\(query)")
+        for entry in try await VNDB.search(query, results: 5) {
+            let mark = entry.hasSafeImage ? "✓" : "✗"
+            print("  \(mark) \(entry.id)  \(entry.displayTitle)  \(entry.released ?? "")  \(entry.imageURL?.absoluteString ?? "无图")")
+        }
+    }
 
 default:
     print(usage)

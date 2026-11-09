@@ -16,6 +16,7 @@
 | 模块 | 说明 |
 |---|---|
 | 游戏库 | 拖入文件夹或 exe 即可导入。自动识别引擎（KiriKiri、NScripter、Ren'Py、Unity 等 15 种）和主程序，并按文件名判断是汉化版还是日文原版 |
+| 封面 | 导入时自动获取：先找游戏目录里的 cover / package 等图片，没有就按标题（会去掉“HD版”“汉化版”、版本号等修饰）查 [VNDB](https://vndb.org)，只自动采用非成人的封面。也可以右键“搜索封面…”手动挑选，或者把图片拖到详情页。联网时只会把游戏标题发送给 api.vndb.org |
 | 转区 | 每个游戏可选 简中 / 繁中 / 日文 区域，对应 `zh_CN` / `zh_TW` / `ja_JP` 的 locale，每种区域共用一个 Wine 前缀 |
 | 字体 | 按区域把 MS Gothic、SimSun 等替换成 macOS 自带字体（日文用ヒラギノ角ゴシック，中文用冬青黑体），并配置字体链接，菜单和对话框也不会出方块字 |
 | 运行时 | 自动发现 Wine（/Applications、Homebrew），也可以从 `.tar.xz` 导入到 Kazusa 自己的 Runtimes 目录 |
@@ -48,6 +49,7 @@ Sources/
   KazusaCore/              # 与 UI 无关的核心逻辑，全部有单元测试
     Engine/                # 引擎识别、主程序打分、区域猜测
     Wine/                  # 运行时发现与安装、前缀、环境变量、启动器
+    Covers/                # 封面缓存、游戏目录内找图、VNDB 查询
     Translation/           # LLM 配置、请求构造与解析、翻译会话（去重、上文、缓存）
     Models/ Library/ Settings/ Support/
   Kazusa/                  # SwiftUI 应用
@@ -56,14 +58,15 @@ Sources/
     Capture/               # ScreenCaptureKit 截图 + Vision OCR
 ```
 
-数据存放在 `~/Library/Application Support/Kazusa/`，包括 `library.json`、`settings.json`、`Prefixes/`、`Runtimes/`、`Logs/`。
+数据存放在 `~/Library/Application Support/Kazusa/`，包括 `library.json`、`settings.json`、`Prefixes/`、`Runtimes/`、`Logs/`、`Covers/`。
 
 ## 路线图
 
 - [ ] **原生后端**：KiriKiri 走 krkrsdl2，NScripter 走 ONScripter，System4 走 xsystem4。这些游戏可以完全不用 Wine
 - [ ] **文本钩子**：自己实现 Textractor 式的 hook，直接从游戏进程里取文本，比 OCR 更准；剪贴板模式现在可以先搭配外部工具使用
 - [ ] 视频解码：给前缀装 LAV/quartz 一类的方案，解决 OP/ED 黑屏
-- [ ] 从 VNDB 拉取封面和元数据
+- [x] 从 VNDB 拉取封面
+- [ ] 从 VNDB 拉取简介、品牌等元数据
 - [x] 全局快捷键（游戏在前台时也能触发识别）、悬浮窗点击穿透
 - [ ] 每个游戏独立前缀、存档备份
 - [x] 流式翻译输出
