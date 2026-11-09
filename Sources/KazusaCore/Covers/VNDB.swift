@@ -106,22 +106,28 @@ public enum VNDB {
         }
     }
 
-    public static func search(_ query: String, results: Int = 10, session: URLSession = .shared) async throws -> [VNDBEntry] {
+    static func post(_ body: Data, session: URLSession) async throws -> Data {
         var request = URLRequest(url: endpoint, timeoutInterval: 20)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Kazusa (https://github.com/Shizuku11451/kazusa)", forHTTPHeaderField: "User-Agent")
-        request.httpBody = try requestBody(query: query, results: results)
+        request.httpBody = body
         let (data, response) = try await session.data(for: request)
         if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw CoverError.http(http.statusCode) }
-        return try parse(data)
+        return data
+    }
+
+    public static func search(_ query: String, results: Int = 10, session: URLSession = .shared) async throws -> [VNDBEntry] {
+        try parse(try await post(try requestBody(query: query, results: results), session: session))
     }
 
     /// 依次用 `searchQueries` 搜索，返回第一个有安全封面的结果。
-    public static func bestMatch(for title: String, session: URLSession = .shared) async throws -> VNDBEntry? {
+    /// `requireSafeImage` 为 false 时只要有结果就行（游戏已经有封面、只想拿资料时用）。
+    public static func bestMatch(for title: String, requireSafeImage: Bool = true,
+                                 session: URLSession = .shared) async throws -> VNDBEntry? {
         for query in searchQueries(for: title) {
             let entries = try await search(query, results: 5, session: session)
-            if let hit = entries.first(where: \.hasSafeImage) { return hit }
+            if let hit = entries.first(where: { !requireSafeImage || $0.hasSafeImage }) { return hit }
         }
         return nil
     }

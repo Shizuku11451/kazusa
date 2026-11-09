@@ -13,6 +13,7 @@ struct GameDetailView: View {
     @State private var argumentsText = ""
     @State private var glossaryText = ""
     @State private var isCoverDropTargeted = false
+    @State private var isSynopsisExpanded = false
 
     var body: some View {
         Form {
@@ -31,6 +32,8 @@ struct GameDetailView: View {
                     Text(playTime).font(.caption).foregroundStyle(.secondary)
                 }
             }
+
+            infoSection
 
             Section("运行") {
                 Picker("主程序", selection: $game.executable) {
@@ -80,7 +83,10 @@ struct GameDetailView: View {
             }
         }
         .formStyle(.grouped)
-        .task(id: game.id) { await reload() }
+        .task(id: game.id) {
+            isSynopsisExpanded = false
+            await reload()
+        }
     }
 
     /// 封面预览：可以把图片拖到这里替换。
@@ -114,12 +120,54 @@ struct GameDetailView: View {
                 if model.coverImages[game.id] != nil {
                     Button("移除", role: .destructive) { model.removeCover(for: game.id) }
                 }
-                if let id = game.vndbID, let url = URL(string: "https://vndb.org/\(id)") {
-                    Link("VNDB \(id)", destination: url).font(.caption)
-                }
                 Text("也可以把图片拖到左边").font(.caption2).foregroundStyle(.secondary)
             }
             .buttonStyle(.link)
+        }
+    }
+
+    /// VNDB 上的简介、品牌、发售日等。
+    @ViewBuilder
+    private var infoSection: some View {
+        let isLoading = model.metadataLoading.contains(game.id)
+        Section {
+            if let m = game.metadata {
+                if let title = m.chineseTitle, title != game.title { LabeledContent("中文名", value: title) }
+                if let title = m.originalTitle, title != game.title { LabeledContent("原名", value: title) }
+                if !m.developers.isEmpty { LabeledContent("品牌", value: m.developers.joined(separator: "、")) }
+                if let released = m.releasedText { LabeledContent("发售", value: released) }
+                if let length = m.lengthText { LabeledContent("游玩时长", value: length) }
+                if let rating = m.ratingText { LabeledContent("VNDB 评分", value: rating) }
+                if let synopsis = m.synopsis {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(synopsis)
+                            .lineLimit(isSynopsisExpanded ? nil : 4)
+                            .textSelection(.enabled)
+                        Button(isSynopsisExpanded ? "收起" : "展开") { isSynopsisExpanded.toggle() }
+                            .buttonStyle(.link).font(.caption)
+                    }
+                }
+            } else if isLoading {
+                HStack { ProgressView().controlSize(.small); Text("正在从 VNDB 获取资料…").foregroundStyle(.secondary) }
+            } else if game.vndbID != nil {
+                Text("资料还没获取到（可能是没联网）。").foregroundStyle(.secondary)
+            } else {
+                Text("还没关联 VNDB 条目。可以按标题自动匹配，或者用“搜索 VNDB…”手动选（会同时换封面）。")
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            HStack {
+                Text("资料")
+                Spacer()
+                if let id = game.vndbID {
+                    Link("VNDB \(id)", destination: URL(string: "https://vndb.org/\(id)")!)
+                    Button("刷新") { model.fetchMetadata(for: game.id, silent: false) }.disabled(isLoading)
+                    Button("解除关联") { model.unlinkVNDB(for: game.id) }
+                } else {
+                    Button("自动匹配") { Task { await model.matchMetadata(for: game.id) } }.disabled(isLoading)
+                }
+            }
+            .buttonStyle(.link).font(.caption)
         }
     }
 

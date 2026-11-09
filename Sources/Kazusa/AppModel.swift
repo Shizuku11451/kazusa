@@ -17,6 +17,8 @@ final class AppModel {
     var coverImages: [UUID: NSImage] = [:]
     /// 正在为哪个游戏打开“搜索封面”窗口。
     var coverSearch: CoverSearchRequest?
+    /// 正在从 VNDB 拉取资料的游戏。
+    var metadataLoading: Set<UUID> = []
 
     var games: [Game] = []
     var selectedGameID: UUID?
@@ -62,6 +64,10 @@ final class AppModel {
         loadCovers()
         for game in games where coverImages[game.id] == nil {
             autoFetchCover(for: game.id)
+        }
+        // 旧版本只记了 vndbID，没有资料，补拉一次。
+        for game in games where game.vndbID != nil && game.metadata == nil && coverImages[game.id] != nil {
+            fetchMetadata(for: game.id)
         }
     }
 
@@ -156,6 +162,7 @@ final class AppModel {
     }
 
     /// 没有封面时自动找一张：先看游戏目录里有没有现成的图，再按标题查 VNDB。
+    /// 用了目录里的图时，仍然按标题去 VNDB 匹配一次资料。
     /// 静默进行，找不到或没网也不打扰用户。
     func autoFetchCover(for id: UUID) {
         guard let game = games.first(where: { $0.id == id }) else { return }
@@ -164,6 +171,7 @@ final class AppModel {
         Task {
             if let data = await Task.detached(operation: { LocalCoverFinder.find(in: directory) }).value {
                 try? setCover(data, for: id)
+                if game.vndbID == nil { await matchMetadata(for: id, silent: true) }
                 return
             }
             guard let entry = try? await VNDB.bestMatch(for: title) else { return }
@@ -173,14 +181,11 @@ final class AppModel {
         }
     }
 
-    /// 下载 VNDB 条目的封面并记下条目编号。
+    /// 下载 VNDB 条目的封面并记下条目编号，顺便拉取资料。
     func applyCover(from entry: VNDBEntry, to id: UUID) async throws {
         let data = try await VNDB.downloadImage(entry)
         try setCover(data, for: id)
-        if let i = games.firstIndex(where: { $0.id == id }) {
-            games[i].vndbID = entry.id
-            saveGames()
-        }
+        link(id, toVNDB: entry.id)
     }
 
     func setCover(_ data: Data, for id: UUID) throws {
@@ -204,13 +209,70 @@ final class AppModel {
         setCover(fromFile: url, for: id)
     }
 
+    /// 只移除图片；VNDB 关联和资料保留。
     func removeCover(for id: UUID) {
         covers.remove(for: id)
         coverImages[id] = nil
-        if let i = games.firstIndex(where: { $0.id == id }), games[i].vndbID != nil {
-            games[i].vndbID = nil
-            saveGames()
+    }
+
+    // MARK: - VNDB 资料
+
+    /// 记下 VNDB 条目编号；换了条目或还没有资料时去拉取。
+    private func link(_ id: UUID, toVNDB vndbID: String) {
+        guard let i = games.firstIndex(where: { $0.id == id }) else { return }
+        let changed = games[i].vndbID != vndbID
+        games[i].vndbID = vndbID
+        if changed { games[i].metadata = nil }
+        saveGames()
+        if changed || games[i].metadata == nil { fetchMetadata(for: id) }
+    }
+
+    /// 按已记下的条目编号拉取资料。`silent` 时出错不弹窗（启动时的自动补拉）。
+    func fetchMetadata(for id: UUID, silent: Bool = true) {
+        guard let vndbID = games.first(where: { $0.id == id })?.vndbID, !metadataLoading.contains(id) else { return }
+        metadataLoading.insert(id)
+        Task {
+            defer { metadataLoading.remove(id) }
+            do {
+                let metadata = try await VNDB.details(id: vndbID)
+                // 等待期间用户可能换了条目或解除了关联。
+                guard let i = games.firstIndex(where: { $0.id == id }), games[i].vndbID == vndbID else { return }
+                games[i].metadata = metadata
+                saveGames()
+            } catch {
+                if !silent { report(error) }
+            }
         }
+    }
+
+    /// 没有关联条目时，按标题在 VNDB 上找最像的一条（不替换封面）。
+    func matchMetadata(for id: UUID, silent: Bool = false) async {
+        guard let title = games.first(where: { $0.id == id })?.title, !metadataLoading.contains(id) else { return }
+        metadataLoading.insert(id)
+        let result: Result<VNDBEntry?, Error>
+        do { result = .success(try await VNDB.bestMatch(for: title, requireSafeImage: false)) } catch { result = .failure(error) }
+        // 先清掉标记，link 里的 fetchMetadata 会重新标上。
+        metadataLoading.remove(id)
+        switch result {
+        case .success(let entry?):
+            // 等待期间用户可能已经手动选了条目。
+            guard games.first(where: { $0.id == id })?.vndbID == nil else { return }
+            link(id, toVNDB: entry.id)
+        case .success(nil):
+            if !silent {
+                alert = AlertItem(title: "VNDB 上没找到",
+                                  message: "没有找到和“\(title)”匹配的条目。可以改一下标题再试，或者用“搜索 VNDB…”手动选择。")
+            }
+        case .failure(let error):
+            if !silent { report(error) }
+        }
+    }
+
+    func unlinkVNDB(for id: UUID) {
+        guard let i = games.firstIndex(where: { $0.id == id }) else { return }
+        games[i].vndbID = nil
+        games[i].metadata = nil
+        saveGames()
     }
 
     // MARK: - 运行时

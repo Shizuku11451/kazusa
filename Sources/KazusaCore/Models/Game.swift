@@ -78,6 +78,8 @@ public struct Game: Codable, Identifiable, Hashable, Sendable {
     public var totalPlaySeconds: TimeInterval
     /// 对应的 VNDB 条目（如 "v3144"），获取封面时记下。旧的游戏库里没有这个字段。
     public var vndbID: String?
+    /// 从 VNDB 拉来的简介、品牌等资料。没有关联条目或还没拉取时为空。
+    public var metadata: GameMetadata?
 
     public init(
         id: UUID = UUID(),
@@ -93,7 +95,8 @@ public struct Game: Codable, Identifiable, Hashable, Sendable {
         addedAt: Date = Date(),
         lastPlayedAt: Date? = nil,
         totalPlaySeconds: TimeInterval = 0,
-        vndbID: String? = nil
+        vndbID: String? = nil,
+        metadata: GameMetadata? = nil
     ) {
         self.id = id
         self.title = title
@@ -109,6 +112,7 @@ public struct Game: Codable, Identifiable, Hashable, Sendable {
         self.lastPlayedAt = lastPlayedAt
         self.totalPlaySeconds = totalPlaySeconds
         self.vndbID = vndbID
+        self.metadata = metadata
     }
 
     public var executableURL: URL {

@@ -78,3 +78,60 @@ import Testing
         #expect(decoded.title == "x")
     }
 }
+
+@Suite struct MetadataTests {
+    @Test func parsesDetailsResponse() throws {
+        let json = """
+        {"more":false,"results":[{"id":"v3144","title":"Subarashiki Hibi ~Furenzoku Sonzai~",
+          "alttitle":"素晴らしき日々～不連続存在～",
+          "titles":[
+            {"lang":"en","main":false,"official":true,"title":"Wonderful Everyday"},
+            {"lang":"ja","main":true,"official":true,"title":"素晴らしき日々～不連続存在～"},
+            {"lang":"zh-Hant","main":false,"official":true,"title":"美好的每一天（繁）"},
+            {"lang":"zh-Hans","main":false,"official":false,"title":"美好的每一天～不连续存在～"}],
+          "released":"2010-03-26",
+          "description":"One day, [b]Yuki[/b] sees a doll.\\n\\n[spoiler]Secret ending.[/spoiler]\\n\\n\\n[From [url=https://store.steampowered.com/app/658620/]Steam[/url]]",
+          "developers":[{"id":"p1040","name":"KeroQ","original":"ケロQ"},{"id":"p2","name":"Makura","original":null}],
+          "rating":86.9,"length_minutes":3103}]}
+        """
+        let m = try #require(try VNDB.parseDetails(Data(json.utf8)))
+        #expect(m.vndbID == "v3144")
+        #expect(m.originalTitle == "素晴らしき日々～不連続存在～")
+        #expect(m.chineseTitle == "美好的每一天～不连续存在～")
+        #expect(m.developers == ["ケロQ", "Makura"])
+        #expect(m.synopsis == "One day, Yuki sees a doll.\n\n[From Steam]")
+        #expect(m.releasedText == "2010年3月26日")
+        #expect(m.lengthText == "约 52 小时")
+        #expect(m.ratingText == "8.7")
+    }
+
+    @Test func handlesSparseDetails() throws {
+        let json = #"{"more":false,"results":[{"id":"v9","title":"Doujin","released":"TBA","description":null,"rating":null,"length_minutes":null}]}"#
+        let m = try #require(try VNDB.parseDetails(Data(json.utf8)))
+        #expect(m.originalTitle == "Doujin")
+        #expect(m.chineseTitle == nil)
+        #expect(m.developers.isEmpty)
+        #expect(m.synopsis == nil)
+        #expect(m.releasedText == "未定")
+        #expect(m.lengthText == nil)
+        #expect(m.ratingText == nil)
+        #expect(try VNDB.parseDetails(Data(#"{"more":false,"results":[]}"#.utf8)) == nil)
+    }
+
+    @Test func formatsPartialDates() {
+        #expect(GameMetadata(vndbID: "v1", released: "2010-03").releasedText == "2010年3月")
+        #expect(GameMetadata(vndbID: "v1", released: "2010").releasedText == "2010年")
+        #expect(GameMetadata(vndbID: "v1", lengthMinutes: 45).lengthText == "约 45 分钟")
+    }
+
+    @Test func decodesOldLibraryWithoutMetadata() throws {
+        let game = Game(title: "x", directory: URL(fileURLWithPath: "/tmp"), executable: "a.exe", engine: .bgi, locale: .japanese,
+                        vndbID: "v1", metadata: GameMetadata(vndbID: "v1", developers: ["A"]))
+        var object = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(game)) as? [String: Any])
+        #expect(object["metadata"] != nil)
+        object.removeValue(forKey: "metadata")
+        let decoded = try JSONDecoder().decode(Game.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(decoded.metadata == nil)
+        #expect(decoded.vndbID == "v1")
+    }
+}

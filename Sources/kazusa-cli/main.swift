@@ -15,6 +15,7 @@ let usage = """
   wine [--locale ...] [--prefix ...] <参数...>
                                     在前缀里执行任意 wine 命令（如 winecfg）
   cover <标题>                       在 VNDB 上搜索封面（只打印结果，不下载）
+  info <VNDB 编号或标题>             从 VNDB 拉取简介、品牌等资料并打印
 """
 
 let paths = KazusaPaths.default
@@ -141,6 +142,24 @@ case "cover":
             print("  \(mark) \(entry.id)  \(entry.displayTitle)  \(entry.released ?? "")  \(entry.imageURL?.absoluteString ?? "无图")")
         }
     }
+
+case "info":
+    let query = args.joined(separator: " ")
+    guard !query.isEmpty else { fail("需要 VNDB 编号（如 v3144）或游戏标题") }
+    var id = query
+    if query.range(of: #"^v\d+$"#, options: .regularExpression) == nil {
+        guard let entry = try await VNDB.bestMatch(for: query, requireSafeImage: false) else { fail("VNDB 上没找到“\(query)”") }
+        id = entry.id
+    }
+    let m = try await VNDB.details(id: id)
+    print("编号：\(m.vndbID)")
+    if let t = m.originalTitle { print("原名：\(t)") }
+    if let t = m.chineseTitle { print("中文名：\(t)") }
+    if !m.developers.isEmpty { print("品牌：\(m.developers.joined(separator: "、"))") }
+    if let t = m.releasedText { print("发售：\(t)") }
+    if let t = m.lengthText { print("游玩时长：\(t)") }
+    if let t = m.ratingText { print("评分：\(t)") }
+    if let t = m.synopsis { print("\n\(t)") }
 
 default:
     print(usage)
