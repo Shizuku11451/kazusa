@@ -55,6 +55,7 @@ func requireRuntime() -> WineRuntime {
 guard !args.isEmpty else { print(usage); exit(0) }
 let command = args.removeFirst()
 
+do {
 switch command {
 case "runtimes":
     for runtime in WineRuntimeLocator.discover(paths: paths) {
@@ -120,8 +121,10 @@ case "wine":
     let locale = parseLocale(option("--locale")) ?? .japanese
     let prefixName = option("--prefix") ?? locale.defaultPrefixName
     let runtime = requireRuntime()
+    _ = try await RosettaWoW64Fix.applyToRuntime(runtime, paths: paths)
     let prefix = WinePrefix(name: prefixName, paths: paths)
     try await prefix.prepare(runtime: runtime, locale: locale, cjkFont: "")
+    _ = try await RosettaWoW64Fix.applyToPrefix(prefix.url, runtime: runtime, paths: paths)
     let env = WineEnvironment.make(runtime: runtime, prefix: prefix.url, locale: locale, extra: ["WINEDEBUG": "err+all,fixme-all"])
     let result = try await ProcessRunner.run(runtime.wineBinary, arguments: args, environment: env)
     print(result.output)
@@ -130,4 +133,7 @@ case "wine":
 default:
     print(usage)
     exit(1)
+}
+} catch {
+    fail(error.localizedDescription)
 }

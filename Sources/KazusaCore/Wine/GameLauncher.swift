@@ -59,14 +59,19 @@ public actor GameLauncher {
         }
         try paths.ensureDirectories()
 
+        // 先修运行时，再建 / 更新前缀，最后补前缀里的副本（见 RosettaWoW64Fix）。
+        let runtimeFix = try await RosettaWoW64Fix.applyToRuntime(runtime, paths: paths)
         let prefix = WinePrefix(name: game.prefixName, paths: paths)
         try await prefix.prepare(runtime: runtime, locale: game.locale, cjkFont: cjkFont)
+        let prefixFix = try await RosettaWoW64Fix.applyToPrefix(prefix.url, runtime: runtime, paths: paths)
+        // 汉化版常要求“先安装 font.ttf”：自动装进前缀。
+        try prefix.installFonts(from: game.directory, tag: String(game.id.uuidString.prefix(8)))
 
         let env = WineEnvironment.make(runtime: runtime, prefix: prefix.url, locale: game.locale, extra: game.environment)
         let logURL = logFile(for: game.id)
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
         let log = try FileHandle(forWritingTo: logURL)
-        let header = "=== Kazusa \(Date()) ===\nruntime: \(runtime.wineBinary.path)\nprefix: \(prefix.url.path)\nlocale: \(game.locale.posixLocale)\nexe: \(exe.path)\n\n"
+        let header = "=== Kazusa \(Date()) ===\nruntime: \(runtime.wineBinary.path)\nprefix: \(prefix.url.path)\nlocale: \(game.locale.posixLocale)\nexe: \(exe.path)\nwow64cpu fix: runtime \(runtimeFix), prefix \(prefixFix)\n\n"
         log.write(Data(header.utf8))
 
         let process = Process()

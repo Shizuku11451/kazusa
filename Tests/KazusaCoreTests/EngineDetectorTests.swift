@@ -55,6 +55,18 @@ import Testing
         #expect(ranked.first == "WA2.exe")
     }
 
+    /// 真实的汉化移植版目录结构（只保留文件名）。
+    @Test func followsReadmeFileNameHint() {
+        let paths = [
+            "BGI_patch.exe", "BGI_patch.exe 启动游戏 汉化移植v1.01版本.txt", "BGI-CHS.exe", "BGI.exe",
+            "BHVC.exe", "Uninstaller.exe", "README.txt", "补丁＆附件/汉化移植v1.01修正补丁/BGI_patch.exe",
+        ]
+        #expect(GameInspector.rankExecutables(paths: paths, directoryName: "素晴らしき日々HD版").first == "BGI_patch.exe")
+        // 没有提示文件时，汉化程序排在原版前面。
+        let noHint = paths.filter { !$0.hasSuffix(".txt") && !$0.contains("patch") }
+        #expect(GameInspector.rankExecutables(paths: noHint, directoryName: "x").first == "BGI-CHS.exe")
+    }
+
     @Test func guessesChineseForTranslatedRelease() {
         #expect(GameInspector.guessLocale(title: "白色相簿2 汉化硬盘版", paths: ["WA2.exe"]) == .simplifiedChinese)
         #expect(GameInspector.guessLocale(title: "WA2_CHT", paths: []) == .traditionalChinese)
@@ -130,6 +142,27 @@ import Testing
     }
 }
 
+@Suite struct PrefixFontTests {
+    @Test func copiesGameFontsIntoPrefix() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("kz-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let game = tmp.appendingPathComponent("game")
+        try FileManager.default.createDirectory(at: game, withIntermediateDirectories: true)
+        try Data("abc".utf8).write(to: game.appendingPathComponent("font.ttf"))
+        try Data().write(to: game.appendingPathComponent("game.exe"))
+
+        let prefix = WinePrefix(name: "p", paths: KazusaPaths(root: tmp))
+        let first = try prefix.installFonts(from: game, tag: "1234")
+        #expect(first.map(\.lastPathComponent) == ["kazusa-1234-font.ttf"])
+        #expect(try prefix.installFonts(from: game, tag: "1234").isEmpty) // 已经装过
+        #expect(try prefix.installFonts(from: game, tag: "5678").isEmpty) // 同一字体换了 tag 也不重复装
+    }
+
+    @Test func stableHash() {
+        #expect("abc".hashValueStable == 0xe71fa2190541574b)
+    }
+}
+
 @Suite struct LegacyTextTests {
     @Test func decodesShiftJISOutput() {
         let data = "現在のコード ページ: 932".data(using: .shiftJIS)!
@@ -138,5 +171,38 @@ import Testing
 
     @Test func prefersUTF8() {
         #expect(LegacyText.decode(Data("冬馬かずさ".utf8)) == "冬馬かずさ")
+    }
+}
+
+@Suite struct RosettaWoW64FixTests {
+    @Test func parsesWineVersion() {
+        #expect(RosettaWoW64Fix.wineVersion(fromVersionOutput: "wine-11.21 (Staging)\n") == "11.21")
+        #expect(RosettaWoW64Fix.wineVersion(fromVersionOutput: "wine-11.0") == "11.0")
+        #expect(RosettaWoW64Fix.wineVersion(fromVersionOutput: "garbage") == nil)
+    }
+
+    @Test func findsBundledDLLForKnownVersion() {
+        let roots = RosettaWoW64Fix.searchRoots(paths: KazusaPaths(root: URL(fileURLWithPath: "/nonexistent")))
+        #expect(RosettaWoW64Fix.patchedDLL(version: "11.21", searchRoots: roots) != nil)
+        #expect(RosettaWoW64Fix.patchedDLL(version: "1.0", searchRoots: roots) == nil)
+    }
+
+    @Test func installBacksUpOriginalOnce() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory.appendingPathComponent("kz-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: tmp) }
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        let fixed = tmp.appendingPathComponent("fixed.dll")
+        let target = tmp.appendingPathComponent("wow64cpu.dll")
+        try Data("fixed".utf8).write(to: fixed)
+        try Data("orig".utf8).write(to: target)
+
+        #expect(try RosettaWoW64Fix.install(fixed, over: target))
+        #expect(try !RosettaWoW64Fix.install(fixed, over: target)) // 已是修复版
+        #expect(try Data(contentsOf: target) == Data("fixed".utf8))
+        // 再被 wineboot 覆盖后重新修复，备份仍是最初的原版。
+        try Data("orig2".utf8).write(to: target)
+        #expect(try RosettaWoW64Fix.install(fixed, over: target))
+        #expect(try Data(contentsOf: target.appendingPathExtension("orig")) == Data("orig".utf8))
     }
 }

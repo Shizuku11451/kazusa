@@ -12,6 +12,11 @@ BIN="$(swift build -c release --show-bin-path)/Kazusa"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Kazusa"
+# Rosetta 修复用的 wow64cpu.dll（LGPL，附带补丁和许可证），见 ThirdParty/wow64cpu-rosetta。
+mkdir -p "$APP/Contents/Resources/wow64cpu-rosetta"
+cp -R ThirdParty/wow64cpu-rosetta/prebuilt ThirdParty/wow64cpu-rosetta/COPYING.LIB \
+      ThirdParty/wow64cpu-rosetta/wow64cpu-rosetta-farjump.patch ThirdParty/wow64cpu-rosetta/README.md \
+      "$APP/Contents/Resources/wow64cpu-rosetta/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

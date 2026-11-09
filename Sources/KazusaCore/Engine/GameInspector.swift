@@ -15,6 +15,8 @@ public struct GameInspection: Sendable {
 
 public enum GameInspector {
     /// 名字里带这些词的 exe 通常不是游戏本体。
+    static let chineseExecutableMarkers = ["chs", "_cn", "-cn", "汉化", "中文", "简体", "zh"]
+
     static let nonGameExecutableKeywords = [
         "config", "setup", "install", "uninst", "unins", "update", "patch",
         "setting", "launcher_config", "vcredist", "dxsetup", "directx", "crash",
@@ -37,6 +39,10 @@ public enum GameInspector {
     public static func rankExecutables(paths: [String], directoryName: String, directory: URL? = nil) -> [String] {
         let exes = paths.filter { $0.lowercased().hasSuffix(".exe") }
         let dirName = directoryName.lowercased()
+        // 汉化发布常用文件名写说明，例如「BGI_patch.exe 启动游戏 汉化移植v1.01版本.txt」。
+        let hintNames = paths
+            .filter { !$0.lowercased().hasSuffix(".exe") && !$0.contains("/") }
+            .map { $0.lowercased() }
 
         func score(_ path: String) -> Double {
             let lower = path.lowercased()
@@ -46,6 +52,11 @@ public enum GameInspector {
             if nonGameExecutableKeywords.contains(where: { lower.contains($0) }) { s -= 10 }
             if !name.isEmpty, dirName.contains(name) || name.contains(dirName) { s += 3 }
             if ["game", "start", "play", "siglusengine", "bgi", "reallive"].contains(name) { s += 2 }
+            // 汉化程序：BGI-CHS.exe、xxx_cn.exe、xxx汉化.exe……
+            if chineseExecutableMarkers.contains(where: { name.contains($0) }) { s += 2 }
+            // 被说明文件点名的程序，比其他规则都可靠。
+            let fileName = (lower as NSString).lastPathComponent
+            if hintNames.contains(where: { $0.contains(fileName) }) { s += 20 }
             if let directory,
                let size = try? directory.appendingPathComponent(path).resourceValues(forKeys: [.fileSizeKey]).fileSize {
                 // 主程序往往比工具程序大，按 MB 的对数加一点分。

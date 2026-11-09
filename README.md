@@ -38,6 +38,7 @@ swift run kazusa-cli        # 开发用命令行：安装运行时、识别游�
 1. **Rosetta 2**（Apple 芯片）：`softwareupdate --install-rosetta --agree-to-license`
 2. **Wine**：从 [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds/releases) 下载 `wine-staging-*-osx64.tar.xz`，在 设置 → 运行环境 → 从压缩包安装（或 `swift run kazusa-cli install-runtime <压缩包>`）。
    > Homebrew 的 `wine-stable` / `wine@staging` cask 因为过不了 Gatekeeper 检查，已在 2026-09-01 被禁用。
+   > 较新的 macOS（已确认 27.x）上 Rosetta 处理 WoW64 模式切换有 bug，32 位游戏会随机崩溃或卡死。Kazusa 启动游戏时会自动给托管的运行时和前缀换上修复版 `wow64cpu.dll`（目前预编译了 Wine 11.21 的），详见 [ThirdParty/wow64cpu-rosetta](ThirdParty/wow64cpu-rosetta/README.md)。
 3. 用 OCR 翻译时需要**屏幕录制权限**：系统设置 → 隐私与安全性 → 屏幕与系统录音
 
 ## 代码结构
@@ -78,7 +79,7 @@ Copyright (C) 2026 Shizuku11451
 
 ### 第三方组件
 
-Kazusa **不打包、不链接**下列组件，只在运行时把它们作为独立程序调用，或使用系统自带的部分：
+Kazusa **不链接**下列组件，只在运行时把它们作为独立程序调用，或使用系统自带的部分。唯一随 Kazusa 分发的第三方文件是修复版 `wow64cpu.dll`（LGPL-2.1-or-later，补丁、构建脚本和许可证都在 [ThirdParty/wow64cpu-rosetta](ThirdParty/wow64cpu-rosetta/)）：
 
 | 组件 | 许可证 | 使用方式 |
 |---|---|---|

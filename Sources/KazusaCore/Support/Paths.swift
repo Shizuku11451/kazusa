@@ -25,6 +25,8 @@ public struct KazusaPaths: Sendable {
     public var prefixesDir: URL { root.appendingPathComponent("Prefixes", isDirectory: true) }
     public var runtimesDir: URL { root.appendingPathComponent("Runtimes", isDirectory: true) }
     public var logsDir: URL { root.appendingPathComponent("Logs", isDirectory: true) }
+    /// 用户自己编译的兼容性修复（比如其他 Wine 版本的 wow64cpu.dll）。
+    public var fixesDir: URL { root.appendingPathComponent("Fixes", isDirectory: true) }
 
     public func ensureDirectories() throws {
         for dir in [root, prefixesDir, runtimesDir, logsDir] {

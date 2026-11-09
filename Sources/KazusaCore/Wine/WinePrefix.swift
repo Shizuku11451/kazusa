@@ -48,8 +48,24 @@ public struct WinePrefix: Sendable {
         self.url = paths.prefixesDir.appendingPathComponent(name, isDirectory: true)
     }
 
+    /// 只有 wineboot 完整跑完才写这个标记。初始化中途被打断时 system.reg 已经存在，
+    /// 但 syswow64 可能只复制了一半，32 位游戏会报 “could not load kernel32.dll”。
+    private var initMarker: URL { url.appendingPathComponent(".kazusa-initialized") }
+
     public var isInitialized: Bool {
-        FileManager.default.fileExists(atPath: url.appendingPathComponent("system.reg").path)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: initMarker.path) { return true }
+        // 旧版本创建的前缀没有标记：核心文件齐全就补上标记。
+        guard hasCoreFiles else { return false }
+        fm.createFile(atPath: initMarker.path, contents: nil)
+        return true
+    }
+
+    /// 64 位和 32 位（WoW64）的 kernel32 都在，才算可用。
+    var hasCoreFiles: Bool {
+        let fm = FileManager.default
+        return ["system.reg", "drive_c/windows/system32/kernel32.dll", "drive_c/windows/syswow64/kernel32.dll"]
+            .allSatisfy { fm.fileExists(atPath: url.appendingPathComponent($0).path) }
     }
 
     public var driveC: URL { url.appendingPathComponent("drive_c", isDirectory: true) }
@@ -62,16 +78,52 @@ public struct WinePrefix: Sendable {
         initEnv["WINEDLLOVERRIDES"] = "mscoree,mshtml=;" + WineEnvironment.baseDllOverrides
 
         if !isInitialized {
+            // 对半成品前缀再跑一次 wineboot 会把缺的文件补齐。
+            try? FileManager.default.removeItem(at: registryStamp)
+            // wineboot 比对这个时间戳判断“已是最新”，不删的话它什么都不做。
+            try? FileManager.default.removeItem(at: url.appendingPathComponent(".update-timestamp"))
             let result = try await ProcessRunner.run(runtime.wineBinary, arguments: ["wineboot", "--init"], environment: initEnv)
             _ = try await ProcessRunner.run(runtime.wineserver, arguments: ["-w"], environment: initEnv)
-            guard isInitialized else {
+            guard hasCoreFiles else {
                 throw PrefixError.initFailed(result.output.suffix(2000).description)
             }
+            FileManager.default.createFile(atPath: initMarker.path, contents: nil)
         }
         try await importRegistry(FontSubstitutes.registryFile(locale: locale, override: cjkFont), runtime: runtime, environment: initEnv)
     }
 
+    /// 上次导入的注册表内容的摘要；内容没变就不再跑 regedit（每次要 1~2 秒）。
+    private var registryStamp: URL { url.appendingPathComponent(".kazusa-registry") }
+
+    /// 把游戏目录根部自带的字体（汉化版常见的 font.ttf）复制到前缀的 Windows\Fonts。
+    /// Wine 启动时会扫描这个目录，不需要另外注册。不同游戏的字体可能同名，所以加上前缀区分。
+    @discardableResult
+    public func installFonts(from gameDirectory: URL, tag: String) throws -> [URL] {
+        let fm = FileManager.default
+        let fontsDir = url.appendingPathComponent("drive_c/windows/Fonts", isDirectory: true)
+        guard let entries = try? fm.contentsOfDirectory(at: gameDirectory, includingPropertiesForKeys: [.fileSizeKey]) else { return [] }
+        let fonts = entries.filter { ["ttf", "ttc", "otf"].contains($0.pathExtension.lowercased()) }
+        guard !fonts.isEmpty else { return [] }
+        try fm.createDirectory(at: fontsDir, withIntermediateDirectories: true)
+        let size = { (u: URL) in (try? u.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? -1 }
+        let existing = (try? fm.contentsOfDirectory(at: fontsDir, includingPropertiesForKeys: [.fileSizeKey])) ?? []
+        var installed: [URL] = []
+        for font in fonts {
+            let destination = fontsDir.appendingPathComponent("kazusa-\(tag)-\(font.lastPathComponent)")
+            // 同一个游戏在库里加过两次（tag 不同）、或别的游戏带了同一个字体：内容相同就不再装一份。
+            let fontSize = size(font)
+            let data = try Data(contentsOf: font)
+            if existing.contains(where: { size($0) == fontSize && (try? Data(contentsOf: $0)) == data }) { continue }
+            if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
+            try data.write(to: destination)
+            installed.append(destination)
+        }
+        return installed
+    }
+
     func importRegistry(_ content: String, runtime: WineRuntime, environment: [String: String]) async throws {
+        let stamp = String(content.hashValueStable, radix: 16)
+        if (try? String(contentsOf: registryStamp, encoding: .utf8)) == stamp { return }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("kazusa-\(UUID().uuidString).reg")
         // regedit 需要 UTF-16LE + BOM 才能正确读入中日文键值。
         var data = Data([0xFF, 0xFE])
@@ -79,11 +131,13 @@ public struct WinePrefix: Sendable {
         try data.write(to: file)
         defer { try? FileManager.default.removeItem(at: file) }
 
+        // 不要在这里 `wineserver -w`：同一前缀里有别的游戏在运行时它会一直等下去。
+        // 注册表在 wineserver 内存里，随后启动的程序连的是同一个 wineserver，能直接看到改动。
         let result = try await ProcessRunner.run(runtime.wineBinary, arguments: ["regedit", "/S", file.path], environment: environment)
-        _ = try await ProcessRunner.run(runtime.wineserver, arguments: ["-w"], environment: environment)
         if result.exitCode != 0 {
             throw PrefixError.registryFailed(result.output)
         }
+        try? stamp.write(to: registryStamp, atomically: true, encoding: .utf8)
     }
 
     public enum PrefixError: LocalizedError {
@@ -186,5 +240,14 @@ public enum FontSubstitutes {
             }
         }
         return "hex(7):" + bytes.map { String(format: "%02x", $0) }.joined(separator: ",")
+    }
+}
+
+extension String {
+    /// 跨进程稳定的哈希（FNV-1a）。`hashValue` 每次启动都会变，不能用来做持久化比较。
+    var hashValueStable: UInt64 {
+        var h: UInt64 = 0xcbf2_9ce4_8422_2325
+        for b in utf8 { h = (h ^ UInt64(b)) &* 0x100_0000_01b3 }
+        return h
     }
 }
