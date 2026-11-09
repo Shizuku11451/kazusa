@@ -20,6 +20,15 @@ public enum GameLocale: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// Windows 代码页，文本钩子按它解码游戏里的多字节文本。
+    public var codepage: Int {
+        switch self {
+        case .simplifiedChinese: 936
+        case .traditionalChinese: 950
+        case .japanese: 932
+        }
+    }
+
     public var displayName: String {
         switch self {
         case .simplifiedChinese: "简体中文 (GBK)"
@@ -52,10 +61,18 @@ public struct GameTranslationSettings: Codable, Hashable, Sendable {
     public var enabled: Bool
     /// 人名、专有名词对照表，例如 ["冬馬かずさ": "冬马和纱"]。会注入翻译提示词。
     public var glossary: [String: String]
+    /// 用文本钩子直接读游戏文本（只对 Wine 游戏有效）。nil 表示默认开启；关掉则回到截图 OCR。
+    public var textHook: Bool?
 
-    public init(enabled: Bool = false, glossary: [String: String] = [:]) {
+    public init(enabled: Bool = false, glossary: [String: String] = [:], textHook: Bool? = nil) {
         self.enabled = enabled
         self.glossary = glossary
+        self.textHook = textHook
+    }
+
+    public var usesTextHook: Bool {
+        get { textHook ?? true }
+        set { textHook = newValue }
     }
 }
 

@@ -14,6 +14,8 @@ enum TextSourceMode: String, CaseIterable, Identifiable {
     case auto
     /// 监听剪贴板：配合把文本复制到剪贴板的提取工具使用。
     case clipboard
+    /// 文本钩子：直接从游戏进程读文本（只有用 Wine 启动、开着钩子的游戏才有）。
+    case hook
 
     var id: String { rawValue }
 
@@ -22,6 +24,7 @@ enum TextSourceMode: String, CaseIterable, Identifiable {
         case .manual: "手动"
         case .auto: "自动 OCR"
         case .clipboard: "剪贴板"
+        case .hook: "文本钩子"
         }
     }
 }
@@ -41,9 +44,22 @@ final class OverlayState {
     var isLocked = false
     /// 正在流式输出的一句（原文, 目前为止的译文）。
     var pending: (source: String, translation: String)?
+
+    /// 挂着文本钩子的游戏。
+    var hookGameID: UUID?
+    /// 钩到过文本的各路（给“文本来源”菜单用）。
+    var hookThreads: [HookThreadSelector.ThreadState] = []
+    var activeHookThread: String?
+    var pinnedHookThread: String?
+
+    var availableModes: [TextSourceMode] {
+        TextSourceMode.allCases.filter { $0 != .hook || hookGameID != nil }
+    }
 }
 
-/// 翻译悬浮窗：上半部分是透明的“取景框”（截图区域），下半部分显示译文。
+/// 翻译悬浮窗。
+/// - OCR 模式：上半部分是透明的“取景框”（截图区域），下半部分显示译文；
+/// - 文本钩子模式：只有一条字幕条，默认放在屏幕下方。
 @MainActor
 final class TranslatorOverlayController {
     private unowned let model: AppModel
@@ -58,6 +74,12 @@ final class TranslatorOverlayController {
     private var lastClipboardChange = NSPasteboard.general.changeCount
     /// 每次翻译递增；迟到的流式回调对不上就丢弃。
     private var streamGeneration = 0
+    private var gameID: UUID?
+
+    private var selector = HookThreadSelector()
+    /// 翻译进行中时到达的最新一句；翻完当前这句只翻它，中间跳过的不再翻。
+    private var queuedText: String?
+    private var draining = false
 
     init(model: AppModel) {
         self.model = model
@@ -68,20 +90,31 @@ final class TranslatorOverlayController {
             state.gameTitle = game.title
             state.locale = game.locale
             state.glossary = game.translation.glossary
+            gameID = game.id
         }
         rebuildSession()
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        restoreFrame(of: panel, for: game)
+        applyLayout()
         panel.orderFrontRegardless()
     }
 
-    /// 每个游戏的窗口位置 / 文本框位置都不一样：按游戏分别记住悬浮窗的位置和大小。
-    private func restoreFrame(of panel: NSPanel, for game: Game?) {
-        let name = "KazusaOverlay-\(game?.id.uuidString ?? "default")"
+    /// 每个游戏的窗口位置 / 文本框位置都不一样：按游戏、按模式（取景框 / 字幕条）分别记住位置和大小。
+    private func applyLayout() {
+        guard let panel else { return }
+        let subtitle = state.mode == .hook
+        panel.minSize = subtitle ? NSSize(width: 360, height: 90) : NSSize(width: 320, height: 200)
+        let name = "KazusaOverlay-\(gameID?.uuidString ?? "default")\(subtitle ? "-subtitle" : "")"
         guard panel.frameAutosaveName != name else { return }
         panel.setFrameAutosaveName("")
-        panel.setFrameUsingName(name)
+        if !panel.setFrameUsingName(name) {
+            if subtitle, let screen = NSScreen.main?.visibleFrame {
+                let width = min(960, screen.width - 80)
+                panel.setFrame(NSRect(x: screen.midX - width / 2, y: screen.minY + 40, width: width, height: 150), display: true)
+            } else if !subtitle {
+                panel.setContentSize(NSSize(width: 760, height: 320))
+            }
+        }
         panel.setFrameAutosaveName(name)
     }
 
@@ -94,7 +127,7 @@ final class TranslatorOverlayController {
     }
 
     func close() {
-        setMode(.manual)
+        if state.mode != .hook { setMode(.manual) }
         panel?.orderOut(nil)
     }
 
@@ -123,8 +156,9 @@ final class TranslatorOverlayController {
         state.mode = mode
         loopTask?.cancel()
         loopTask = nil
+        applyLayout()
         switch mode {
-        case .manual:
+        case .manual, .hook:
             break
         case .auto:
             lastOCRText = ""
@@ -168,6 +202,83 @@ final class TranslatorOverlayController {
         lastClipboardChange = pasteboard.changeCount
         guard let text = pasteboard.string(forType: .string) else { return }
         Task { await translate(text) }
+    }
+
+    // MARK: - 文本钩子
+
+    /// 游戏刚用 Wine 启动、钩子程序即将运行：切到字幕条。
+    func beginHook(game: Game) {
+        selector = HookThreadSelector()
+        queuedText = nil
+        state.hookGameID = game.id
+        state.lines = []
+        syncThreads()
+        show(game: game)
+        setMode(.hook)
+        state.status = "正在连接游戏…"
+    }
+
+    func hookFailed(_ message: String) {
+        state.hookGameID = nil
+        setMode(.manual)
+        state.status = "文本钩子没能启动：\(message)。可以改用 OCR。"
+    }
+
+    func handleHook(_ event: HookEvent?, gameID: UUID) {
+        guard state.hookGameID == gameID else { return }
+        func info(_ text: String) {
+            // 已经有译文时不打扰；状态栏里的文字在有译文时是红色的错误提示。
+            if state.lines.isEmpty { state.status = text }
+        }
+        switch event {
+        case nil:
+            info("文本钩子已退出。")
+        case .ready:
+            info("已连接，推进一句对白试试。")
+        case .info(level: 4, let engine):
+            info("识别到 \(engine) 引擎，推进一句对白试试。")
+        case .info, .hookInserted:
+            break
+        case .thread(let thread):
+            selector.register(thread)
+            syncThreads()
+        case .threadRemoved(let id):
+            selector.remove(id: id)
+            syncThreads()
+        case .text(let threadID, let text):
+            let line = selector.accept(threadID: threadID, text: text)
+            syncThreads()
+            if let line, state.mode == .hook { enqueue(line) }
+        case .detached:
+            info("游戏和文本钩子断开了。")
+        case .error(let message):
+            state.status = message
+        }
+    }
+
+    /// 手动指定翻译哪一路；nil 表示自动。
+    func pinHookThread(_ id: String?) {
+        selector.pinnedThreadID = id
+        syncThreads()
+    }
+
+    private func syncThreads() {
+        state.hookThreads = selector.threads.filter { $0.score > 0 }
+        state.activeHookThread = selector.activeThreadID
+        state.pinnedHookThread = selector.pinnedThreadID
+    }
+
+    private func enqueue(_ text: String) {
+        queuedText = text
+        guard !draining else { return }
+        draining = true
+        Task {
+            while let next = queuedText {
+                queuedText = nil
+                await translate(next)
+            }
+            draining = false
+        }
     }
 
     private func ocr(quiet: Bool = false) async -> String? {
@@ -255,11 +366,18 @@ struct OverlayView: View {
 
     static let barHeight: CGFloat = 132
 
+    private var subtitle: Bool { state.mode == .hook }
+
     var body: some View {
         VStack(spacing: 0) {
-            CaptureFrame(controller: controller, locked: state.isLocked)
-            translationBar
-                .frame(height: Self.barHeight)
+            if subtitle {
+                translationBar
+                    .frame(maxHeight: .infinity)
+            } else {
+                CaptureFrame(controller: controller, locked: state.isLocked)
+                translationBar
+                    .frame(height: Self.barHeight)
+            }
         }
     }
 
@@ -269,16 +387,17 @@ struct OverlayView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(state.lines.reversed()) { line in
-                            LineView(line: line)
+                            LineView(line: line, large: false)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else if let pending = state.pending {
-                LineView(source: pending.source, translation: pending.translation.isEmpty ? "…" : pending.translation)
+                LineView(source: pending.source, translation: pending.translation.isEmpty ? "…" : pending.translation,
+                         large: subtitle)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else if let line = state.lines.last {
-                LineView(line: line)
+                LineView(line: line, large: subtitle)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 Text(state.status)
@@ -288,21 +407,27 @@ struct OverlayView: View {
 
             HStack(spacing: 10) {
                 Picker("", selection: Binding(get: { state.mode }, set: { controller.setMode($0) })) {
-                    ForEach(TextSourceMode.allCases) { Text($0.title).tag($0) }
+                    ForEach(state.availableModes) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 220)
+                .frame(width: state.hookGameID == nil ? 220 : 300)
 
-                Button("识别") { controller.captureOnce() }
-                    .disabled(state.isWorking)
-                    .help("系统级快捷键 \(GlobalHotKeys.Combo.recognize.display)，游戏在前台也能用")
+                if subtitle {
+                    threadMenu
+                } else {
+                    Button("识别") { controller.captureOnce() }
+                        .disabled(state.isWorking)
+                        .help("系统级快捷键 \(GlobalHotKeys.Combo.recognize.display)，游戏在前台也能用")
+                }
                 Toggle("历史", isOn: $state.showHistory)
                     .toggleStyle(.button)
-                Button { controller.toggleLock() } label: {
-                    Image(systemName: state.isLocked ? "lock.fill" : "lock.open")
+                if !subtitle {
+                    Button { controller.toggleLock() } label: {
+                        Image(systemName: state.isLocked ? "lock.fill" : "lock.open")
+                    }
+                    .help("锁定后点击穿透到游戏（\(GlobalHotKeys.Combo.toggleLock.display)）")
                 }
-                .help("锁定后点击穿透到游戏（\(GlobalHotKeys.Combo.toggleLock.display)）")
                 if state.isWorking { ProgressView().controlSize(.small) }
                 if !state.status.isEmpty && !state.lines.isEmpty {
                     Text(state.status).font(.caption).foregroundStyle(.red).lineLimit(1)
@@ -314,34 +439,69 @@ struct OverlayView: View {
             }
         }
         .padding(12)
+        .background(WindowDragArea())
         .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// 游戏里通常有好几路文本（对白、人名、菜单……），默认自动选字数最多的一路，也可以手动指定。
+    private var threadMenu: some View {
+        Menu {
+            Button { controller.pinHookThread(nil) } label: {
+                if state.pinnedHookThread == nil { Label("自动选择", systemImage: "checkmark") } else { Text("自动选择") }
+            }
+            if !state.hookThreads.isEmpty { Divider() }
+            ForEach(state.hookThreads) { t in
+                let sample = t.lastText.count > 24 ? String(t.lastText.prefix(24)) + "…" : t.lastText
+                let title = "\(t.thread.name.isEmpty ? "文本" : t.thread.name)：\(sample)"
+                Button { controller.pinHookThread(t.id) } label: {
+                    if state.pinnedHookThread == t.id { Label(title, systemImage: "checkmark") } else { Text(title) }
+                }
+            }
+        } label: {
+            Text(state.pinnedHookThread == nil ? "自动选择" : "手动指定")
+        }
+        .fixedSize()
+        .help("游戏有好几路文本时（对白、人名、选项），选择翻译哪一路")
     }
 }
 
 private struct LineView: View {
     let source: String
     let translation: String
+    /// 字幕条用大字。
+    let large: Bool
 
-    init(line: TranslationSession.Line) {
-        self.init(source: line.source, translation: line.translation)
+    init(line: TranslationSession.Line, large: Bool) {
+        self.init(source: line.source, translation: line.translation, large: large)
     }
 
-    init(source: String, translation: String) {
+    init(source: String, translation: String, large: Bool) {
         self.source = source
         self.translation = translation
+        self.large = large
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(translation)
-                .font(.system(size: 17, weight: .medium))
+                .font(.system(size: large ? 22 : 17, weight: .medium))
                 .textSelection(.enabled)
             Text(source)
-                .font(.caption)
+                .font(large ? .callout : .caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
         }
     }
+}
+
+/// 拖动这里移动悬浮窗（字幕条没有取景框可以拖）。
+private struct WindowDragArea: NSViewRepresentable {
+    final class DragView: NSView {
+        override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+    }
+
+    func makeNSView(context: Context) -> DragView { DragView() }
+    func updateNSView(_ nsView: DragView, context: Context) {}
 }
 
 /// 透明取景框：可以拖动窗口，同时把自己的 NSView 交给控制器换算截图区域。

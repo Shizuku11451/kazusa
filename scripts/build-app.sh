@@ -40,6 +40,15 @@ mkdir -p "$ONS"
 cp ThirdParty/onscripter-yuri/prebuilt/onsyuri ThirdParty/onscripter-yuri/COPYING ThirdParty/onscripter-yuri/README.md "$ONS/"
 cp -R ThirdParty/onscripter-yuri/licenses "$ONS/"
 
+# 文本钩子：kazusa-hook32/64.exe（本项目，GPL-3.0）+ LunaHook（GPL-3.0），都是在 Wine 里运行的 Windows 程序。
+# 见 HookHost/ 和 ThirdParty/lunahook。
+HOOK="$APP/Contents/Resources/texthook"
+mkdir -p "$HOOK"
+cp HookHost/prebuilt/kazusa-hook32.exe HookHost/prebuilt/kazusa-hook64.exe "$HOOK/"
+cp -R ThirdParty/lunahook/prebuilt/x86 ThirdParty/lunahook/prebuilt/x64 "$HOOK/"
+cp ThirdParty/lunahook/COPYING ThirdParty/lunahook/README.md "$HOOK/"
+cp -R ThirdParty/lunahook/licenses "$HOOK/"
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

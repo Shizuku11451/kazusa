@@ -5,7 +5,7 @@
 在 Mac 上玩 Windows galgame 的原生启动器：**汉化版开箱即玩**，**日文原版配 LLM 实时翻译**。
 
 - 纯 SwiftUI + Swift Package，没有用 CrossOver / Whisky 等现有前端；唯一的外部依赖是 Wine 本身（作为 Windows 兼容层）。
-- 运行时管理、前缀、转区、字体替换、启动、OCR 和翻译都是自己写的。
+- 运行时管理、前缀、转区、字体替换、启动、OCR 和翻译都是自己写的；文本钩子用 [LunaHook](ThirdParty/lunahook/) 的引擎规则，注入和通信的小程序是自己写的。
 
 ![游戏库](docs/screenshots/library.png)
 
@@ -22,7 +22,8 @@
 | 转区 | 每个游戏可选 简中 / 繁中 / 日文 区域，对应 `zh_CN` / `zh_TW` / `ja_JP` 的 locale，每种区域共用一个 Wine 前缀 |
 | 字体 | 按区域把 MS Gothic、SimSun 等替换成 macOS 自带字体（日文用ヒラギノ角ゴシック，中文用冬青黑体），并配置字体链接，菜单和对话框也不会出方块字 |
 | 运行时 | 自动发现 Wine（/Applications、Homebrew），也可以从 `.tar.xz` 导入到 Kazusa 自己的 Runtimes 目录 |
-| 翻译悬浮窗 | 半透明取景框盖在游戏文本框上，用 ScreenCaptureKit 截图、Vision 做 OCR，再交给 LLM 翻译。三种模式：手动、自动（画面稳定后才翻译）、剪贴板。系统级快捷键 ⇧⌘R 识别、⇧⌘L 锁定（点击穿透到游戏），游戏在前台也能用；按游戏记住悬浮窗位置；译文流式输出 |
+| 文本钩子 | 用 Wine 启动日文游戏时，自动把 [LunaHook](ThirdParty/lunahook/) 注入游戏（按游戏位数选 32 / 64 位），识别引擎、直接读出台词，不用截图、不用对准文本框。游戏有好几路文本（对白、人名、选项）时自动挑对白那一路，也可以手动指定。译文显示在屏幕下方的字幕条里。个别游戏钩不到时，可以在游戏设置里关掉，改用 OCR |
+| 翻译悬浮窗（OCR） | 半透明取景框盖在游戏文本框上，用 ScreenCaptureKit 截图、Vision 做 OCR，再交给 LLM 翻译。三种模式：手动、自动（画面稳定后才翻译）、剪贴板。系统级快捷键 ⇧⌘R 识别、⇧⌘L 锁定（点击穿透到游戏），游戏在前台也能用；按游戏记住悬浮窗位置；译文流式输出 |
 | 自定义 LLM | 支持 OpenAI 兼容接口（DeepSeek、Ollama、LM Studio、各类中转）和 Anthropic 接口；会带上前文和每个游戏的术语表；API Key 存在钥匙串里 |
 
 ## 构建
@@ -45,7 +46,7 @@ swift run kazusa-cli        # 开发用命令行：安装运行时、识别游�
    > Homebrew 的 `wine-stable` / `wine@staging` cask 因为过不了 Gatekeeper 检查，已在 2026-09-01 被禁用。
    > 较新的 macOS（已确认 27.x）上 Rosetta 处理 WoW64 模式切换有 bug，32 位游戏会随机崩溃或卡死。Kazusa 启动游戏时会自动给托管的运行时和前缀换上修复版 `wow64cpu.dll`（目前预编译了 Wine 11.21 的），详见 [ThirdParty/wow64cpu-rosetta](ThirdParty/wow64cpu-rosetta/README.md)。
    > NScripter 游戏默认用打包的 ONScripter 运行，不需要前两步。
-3. 用 OCR 翻译时需要**屏幕录制权限**：系统设置 → 隐私与安全性 → 屏幕与系统录音
+3. 用 OCR 翻译时（文本钩子不需要）需要**屏幕录制权限**：系统设置 → 隐私与安全性 → 屏幕与系统录音
 
 ## 代码结构
 
@@ -57,11 +58,13 @@ Sources/
     Native/                # 原生引擎（ONScripter）：查找、脚本编码、字体、启动参数
     Covers/                # 封面缓存、游戏目录内找图、VNDB 查询
     Translation/           # LLM 配置、请求构造与解析、翻译会话（去重、上文、缓存）
+    TextHook/              # 文本钩子：PE 位数、事件解析、文本清理、选择对白那一路、运行钩子程序
     Models/ Library/ Settings/ Support/
   Kazusa/                  # SwiftUI 应用
     Views/                 # 游戏库、详情、设置
-    Overlay/               # 翻译悬浮窗（NSPanel）
+    Overlay/               # 翻译悬浮窗 / 字幕条（NSPanel）
     Capture/               # ScreenCaptureKit 截图 + Vision OCR
+HookHost/                  # kazusa-hook32/64.exe：在 Wine 里加载 LunaHost、注入游戏、按行输出 JSON（C，mingw-w64 编译）
 ```
 
 数据存放在 `~/Library/Application Support/Kazusa/`，包括 `library.json`、`settings.json`、`Prefixes/`、`Runtimes/`、`Logs/`、`Covers/`。
@@ -72,7 +75,8 @@ Sources/
   - [x] NScripter 走 ONScripter（打包进 Kazusa.app）
   - [ ] KiriKiri 走 krkrsdl2（需要先确认未修改的商业游戏能不能跑）
   - [ ] System4 走 xsystem4
-- [ ] **文本钩子**：自己实现 Textractor 式的 hook，直接从游戏进程里取文本，比 OCR 更准；剪贴板模式现在可以先搭配外部工具使用
+- [x] **文本钩子**：LunaHook 注入 + 自动选对白线程 + 字幕条
+- [ ] 文本钩子：按游戏记住手动指定的那一路、手动输入特殊码、字幕条跟随游戏窗口
 - [ ] 视频解码：给前缀装 LAV/quartz 一类的方案，解决 OP/ED 黑屏
 - [x] 从 VNDB 拉取封面
 - [x] 从 VNDB 拉取简介、品牌等元数据
@@ -96,10 +100,11 @@ Copyright (C) 2026 Shizuku11451
 
 ### 第三方组件
 
-Kazusa **不链接**下列组件，只在运行时把它们作为独立程序调用，或使用系统自带的部分。随 Kazusa 分发的第三方文件只有两个，构建脚本和许可证都在各自的目录里：
+Kazusa **不链接**下列组件，只在运行时把它们作为独立程序调用，或使用系统自带的部分。随 Kazusa 分发的第三方文件如下，来源、构建方法和许可证都在各自的目录里：
 
 - 修复版 `wow64cpu.dll`（LGPL-2.1-or-later），见 [ThirdParty/wow64cpu-rosetta](ThirdParty/wow64cpu-rosetta/)；
-- ONScripter 程序 `onsyuri`（GPL-2.0-or-later，静态链接了 zlib 许可的 SDL2、FTL 许可的 FreeType、MIT 许可的 HarfBuzz 和 Lua），见 [ThirdParty/onscripter-yuri](ThirdParty/onscripter-yuri/)。
+- ONScripter 程序 `onsyuri`（GPL-2.0-or-later，静态链接了 zlib 许可的 SDL2、FTL 许可的 FreeType、MIT 许可的 HarfBuzz 和 Lua），见 [ThirdParty/onscripter-yuri](ThirdParty/onscripter-yuri/)；
+- LunaHook 的 `LunaHost32/64.dll`、`LunaHook32/64.dll`（GPL-3.0，来自 LunaTranslator 发布包，未修改），只在 Wine 里由 `kazusa-hook.exe` 加载、注入游戏进程，见 [ThirdParty/lunahook](ThirdParty/lunahook/)。
 
 | 组件 | 许可证 | 使用方式 |
 |---|---|---|

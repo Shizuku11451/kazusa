@@ -40,6 +40,11 @@ public actor GameLauncher {
 
     public func isRunning(_ id: UUID) -> Bool { sessions[id] != nil }
 
+    /// Wine 会话用的运行时和环境变量（文本钩子要在同一个前缀里运行）。原生会话返回 nil。
+    public func wineContext(for id: UUID) -> (runtime: WineRuntime, environment: [String: String])? {
+        sessions[id]?.wine
+    }
+
     public func logFile(for id: UUID) -> URL {
         paths.logsDir.appendingPathComponent("\(id.uuidString).log")
     }

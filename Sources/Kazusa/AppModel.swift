@@ -45,6 +45,8 @@ final class AppModel {
     }
 
     @ObservationIgnored lazy var overlay = TranslatorOverlayController(model: self)
+    /// 正在运行的文本钩子，按游戏 ID。
+    @ObservationIgnored private var hookHosts: [UUID: TextHookHost] = [:]
 
     /// 打开游戏详情页，同时选中它（翻译悬浮窗会用选中的游戏）。
     func open(_ id: UUID) {
@@ -391,7 +393,11 @@ final class AppModel {
                     Task { @MainActor in self?.didExit(exit) }
                 }
                 if game.translation.enabled {
-                    overlay.show(game: game)
+                    if game.translation.usesTextHook {
+                        await startTextHook(for: game)
+                    } else {
+                        overlay.show(game: game)
+                    }
                 }
             } catch {
                 runningGameIDs.remove(game.id)
@@ -428,11 +434,13 @@ final class AppModel {
     }
 
     func stop(_ game: Game) {
+        stopTextHook(for: game.id)
         Task { await launcher.stop(game.id) }
     }
 
     private func didExit(_ exit: GameExit) {
         runningGameIDs.remove(exit.gameID)
+        stopTextHook(for: exit.gameID)
         guard let i = games.firstIndex(where: { $0.id == exit.gameID }) else { return }
         games[i].lastPlayedAt = exit.startedAt
         games[i].totalPlaySeconds += exit.duration
@@ -452,6 +460,27 @@ final class AppModel {
 
     func prefixDriveC(for game: Game) -> URL {
         WinePrefix(name: game.prefixName, paths: paths).driveC
+    }
+
+    // MARK: - 文本钩子
+
+    /// 在游戏的前缀里启动文本钩子，钩到的文本交给字幕条翻译。失败时退回 OCR 悬浮窗。
+    private func startTextHook(for game: Game) async {
+        guard let context = await launcher.wineContext(for: game.id) else { return }
+        overlay.beginHook(game: game)
+        let host = TextHookHost()
+        do {
+            try host.start(game: game, runtime: context.runtime, environment: context.environment) { [weak self] event in
+                Task { @MainActor in self?.overlay.handleHook(event, gameID: game.id) }
+            }
+            hookHosts[game.id] = host
+        } catch {
+            overlay.hookFailed(error.localizedDescription)
+        }
+    }
+
+    private func stopTextHook(for id: UUID) {
+        hookHosts.removeValue(forKey: id)?.stop()
     }
 
     // MARK: - 翻译

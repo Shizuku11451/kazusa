@@ -74,6 +74,13 @@ struct GameSettingsView: View {
                         }
                     }
                     Toggle("启动时打开翻译悬浮窗", isOn: $game.translation.enabled)
+                    if isWine {
+                        Toggle(isOn: $game.translation.usesTextHook) {
+                            Text("用文本钩子读取游戏文本")
+                            Text("直接从游戏进程读出台词，比截图识别准确、不用对准文本框。个别游戏钩不到时关掉，改用 OCR。")
+                        }
+                        .disabled(!game.translation.enabled)
+                    }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("术语表（每行一条：原文=译文）").font(.caption).foregroundStyle(.secondary)
                         TextEditor(text: $glossaryText)
