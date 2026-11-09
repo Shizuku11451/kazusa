@@ -70,6 +70,11 @@ struct RuntimeSettingsView: View {
                             Text(label(for: runtime)).tag(runtime.wineBinary.path)
                         }
                     }
+                    if let selected = model.currentRuntime,
+                       selected.videoDecoding != .available {
+                        Label("视频解码\(selected.videoDecoding.summary)。游戏的 OP/ED 会黑屏。", systemImage: "film")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
                 }
                 TextField("自定义 wine 路径", text: $model.settings.customWineBinary, prompt: Text("/path/to/bin/wine"))
                     .onSubmit { model.refreshRuntimes() }

@@ -78,7 +78,7 @@ public actor GameLauncher {
         let logURL = logFile(for: game.id)
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
         let log = try FileHandle(forWritingTo: logURL)
-        let header = "=== Kazusa \(Date()) ===\nruntime: \(runtime.wineBinary.path)\nprefix: \(prefix.url.path)\nlocale: \(game.locale.posixLocale)\nexe: \(exe.path)\nwow64cpu fix: runtime \(runtimeFix), prefix \(prefixFix)\n\n"
+        let header = "=== Kazusa \(Date()) ===\nruntime: \(runtime.wineBinary.path)\nprefix: \(prefix.url.path)\nlocale: \(game.locale.posixLocale)\nexe: \(exe.path)\nwow64cpu fix: runtime \(runtimeFix), prefix \(prefixFix)\nvideo decoding: \(runtime.videoDecoding.summary)\n\n"
         log.write(Data(header.utf8))
 
         // 很多 galgame 用相对路径读资源，工作目录必须是 exe 所在目录。

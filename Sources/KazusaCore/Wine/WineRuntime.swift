@@ -39,6 +39,50 @@ public struct WineRuntime: Codable, Hashable, Sendable, Identifiable {
         }
     }
 
+    /// 运行时的安装根目录（bin 的上一级）。Homebrew 的 wine 是符号链接，先解析到真实位置。
+    public var rootDirectory: URL {
+        wineBinary.resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    /// 能不能解码游戏里的视频（OP/ED）。Wine 的 DirectShow / Media Foundation 都交给
+    /// winegstreamer 处理，它又要加载 GStreamer；两者缺一，视频就是黑屏或者卡住。
+    public var videoDecoding: VideoDecoding {
+        Self.videoDecoding(root: rootDirectory) { FileManager.default.fileExists(atPath: $0) }
+    }
+
+    public enum VideoDecoding: Equatable, Sendable {
+        case available
+        /// 这个 Wine 构建没带 winegstreamer。
+        case missingWinegstreamer
+        /// 有 winegstreamer，但运行时里和 /Library/Frameworks 下都没有 GStreamer。
+        case missingGStreamer
+
+        public var summary: String {
+            switch self {
+            case .available: "可用"
+            case .missingWinegstreamer: "不可用：这个 Wine 构建没有 winegstreamer"
+            case .missingGStreamer: "不可用：找不到 GStreamer（可以改用 Gcenx 的 wine-staging 构建，它自带 GStreamer）"
+            }
+        }
+    }
+
+    /// winegstreamer.so 的 rpath 依次查找运行时自带的 GStreamer.framework 和系统级的
+    /// /Library/Frameworks/GStreamer.framework。
+    static func videoDecoding(root: URL, fileExists: (String) -> Bool) -> VideoDecoding {
+        let lib = root.appendingPathComponent("lib")
+        let unixDirs = ["wine/x86_64-unix", "wine"]
+        guard unixDirs.contains(where: { fileExists(lib.appendingPathComponent("\($0)/winegstreamer.so").path) }) else {
+            return .missingWinegstreamer
+        }
+        let gstreamer = "GStreamer.framework/Libraries/libgstreamer-1.0.0.dylib"
+        let candidates = [
+            lib.appendingPathComponent(gstreamer).path,
+            "/Library/Frameworks/\(gstreamer)",
+            lib.appendingPathComponent("libgstreamer-1.0.0.dylib").path,
+        ]
+        return candidates.contains(where: fileExists) ? .available : .missingGStreamer
+    }
+
     public func version() async -> String? {
         guard let result = try? await ProcessRunner.run(wineBinary, arguments: ["--version"]),
               result.exitCode == 0 else { return nil }
