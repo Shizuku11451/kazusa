@@ -71,10 +71,11 @@ HookHost/                  # kazusa-hook32/64.exe：在 Wine 里加载 LunaHost�
 
 ## 路线图
 
-- [ ] **原生后端**：这些游戏可以完全不用 Wine
+- [x] **原生后端**：能用就不经过 Wine，用不了自动回退 Wine（Wine 仍是主路线，不追求原生覆盖率）
   - [x] NScripter 走 ONScripter（打包进 Kazusa.app）
-  - [ ] KiriKiri 走 krkrsdl2（需要先确认未修改的商业游戏能不能跑）
-  - [ ] System4 走 xsystem4
+  - [x] KiriKiri 走 krkr2（只支持未加密封包、仅 Apple 芯片；加密封包和插件不支持的游戏走 Wine）
+  - [ ] 原生后端的文本输出（LunaHook 只能注入 Wine 里的进程，原生运行的游戏目前只能用识图翻译）
+  - 暂缓：System4 走 xsystem4（只覆盖 AliceSoft，新作支持不全）
 - [x] **文本钩子**：LunaHook 注入 + 自动选对白线程 + 字幕条
 - [ ] 文本钩子：按游戏记住手动指定的那一路、手动输入特殊码、字幕条跟随游戏窗口
 - [ ] 视频解码：给前缀装 LAV/quartz 一类的方案，解决 OP/ED 黑屏
