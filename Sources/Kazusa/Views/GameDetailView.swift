@@ -4,180 +4,214 @@
 import KazusaCore
 import SwiftUI
 
+/// 游戏详情页：大封面、资料、启动按钮和简介。运行和翻译的设置放在“设置”弹窗里。
 struct GameDetailView: View {
     @Environment(AppModel.self) private var model
     @Binding var game: Game
 
-    @State private var candidates: [String] = []
-    @State private var detection: EngineDetection?
-    @State private var argumentsText = ""
-    @State private var glossaryText = ""
     @State private var isCoverDropTargeted = false
     @State private var isSynopsisExpanded = false
     @State private var showsOriginalSynopsis = false
 
+    private var cover: NSImage? { model.coverImages[game.id] }
+    private var isRunning: Bool { model.runningGameIDs.contains(game.id) }
+    private var isLoadingMetadata: Bool { model.metadataLoading.contains(game.id) }
+
     var body: some View {
-        Form {
-            Section {
-                coverSection
-                TextField("标题", text: $game.title)
-                HStack {
-                    if model.runningGameIDs.contains(game.id) {
-                        Button("停止", role: .destructive) { model.stop(game) }
-                    } else {
-                        Button("启动") { model.launch(game) }
-                            .buttonStyle(.borderedProminent)
-                            .keyboardShortcut(.return, modifiers: .command)
-                    }
-                    Spacer()
-                    Text(playTime).font(.caption).foregroundStyle(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                hero
+                VStack(alignment: .leading, spacing: 28) {
+                    stats
+                    aboutSection
                 }
-            }
-
-            infoSection
-
-            Section("运行") {
-                backendPicker
-                if isWine {
-                    Picker("主程序", selection: $game.executable) {
-                        ForEach(executableOptions, id: \.self) { Text($0.isEmpty ? "（无）" : $0).tag($0) }
-                    }
-                }
-                Picker(isWine ? "区域（转区）" : "区域（脚本编码）", selection: localeBinding) {
-                    ForEach(GameLocale.allCases, id: \.self) { Text($0.displayName).tag($0) }
-                }
-                if isWine {
-                    TextField("Wine 前缀", text: $game.prefixName)
-                }
-                TextField("启动参数", text: $argumentsText)
-                    .onSubmit(commitArguments)
-                LabeledContent("引擎") {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Picker("", selection: $game.engine) {
-                            ForEach(EngineKind.allCases, id: \.self) { Text($0.displayName).tag($0) }
-                        }
-                        .labelsHidden()
-                        .onChange(of: game.engine) {
-                            if game.backend == .native && !NativeEngines.supports(game.engine) { game.backend = nil }
-                        }
-                        if let detection, !detection.evidence.isEmpty {
-                            Text("依据：" + detection.evidence.prefix(3).joined(separator: "、"))
-                                .font(.caption2).foregroundStyle(.secondary)
-                                .multilineTextAlignment(.trailing)
-                        }
-                    }
-                }
-            }
-
-            Section("翻译") {
-                Toggle("启动时打开翻译悬浮窗", isOn: $game.translation.enabled)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("术语表（每行一条：原文=译文）").font(.caption).foregroundStyle(.secondary)
-                    TextEditor(text: $glossaryText)
-                        .font(.system(.body, design: .monospaced))
-                        .frame(minHeight: 90)
-                        .onChange(of: glossaryText) { commitGlossary() }
-                }
-            }
-
-            Section("文件") {
-                Button("在 Finder 中显示游戏") { NSWorkspace.shared.activateFileViewerSelecting([game.executableURL]) }
-                Button("打开日志") { open(model.logFile(for: game)) }
-                if isWine {
-                    Button("打开 C 盘（前缀）") { open(model.prefixDriveC(for: game)) }
-                }
-                Text(game.directory.path).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
-            }
-
-            Section {
-                Button("从游戏库移除", role: .destructive) { model.remove(game) }
+                .padding(.horizontal, 32)
+                .padding(.vertical, 24)
+                .frame(maxWidth: 900, alignment: .leading)
             }
         }
-        .formStyle(.grouped)
+        .ignoresSafeArea(edges: .top)
+        .navigationTitle(game.title)
+        .toolbar {
+            ToolbarItem { moreMenu }
+        }
         .task(id: game.id) {
             isSynopsisExpanded = false
             showsOriginalSynopsis = false
-            await reload()
         }
     }
 
-    /// 封面预览：可以把图片拖到这里替换。
-    private var coverSection: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Group {
-                if let cover = model.coverImages[game.id] {
-                    Image(nsImage: cover).resizable().scaledToFill()
-                } else {
-                    Rectangle().fill(.quaternary)
-                        .overlay { Image(systemName: "photo").font(.title).foregroundStyle(.secondary) }
-                }
-            }
-            .frame(width: 96, height: 128)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                if isCoverDropTargeted {
-                    RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor, lineWidth: 3)
-                }
-            }
-            .dropDestination(for: URL.self) { urls, _ in
-                guard let url = urls.first else { return false }
-                model.setCover(fromFile: url, for: game.id)
-                return true
-            } isTargeted: { isCoverDropTargeted = $0 }
+    // MARK: - 顶部
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("封面").font(.headline)
-                Button("搜索 VNDB…") { model.coverSearch = .init(id: game.id) }
-                Button("选择图片…") { model.chooseCoverFile(for: game.id) }
-                if model.coverImages[game.id] != nil {
-                    Button("移除", role: .destructive) { model.removeCover(for: game.id) }
+    private var hero: some View {
+        HStack(alignment: .bottom, spacing: 28) {
+            coverView
+            VStack(alignment: .leading, spacing: 10) {
+                if let subtitle {
+                    Text(subtitle).font(.title3).foregroundStyle(.secondary).lineLimit(1)
                 }
-                Text("也可以把图片拖到左边").font(.caption2).foregroundStyle(.secondary)
+                Text(game.title)
+                    .font(.system(size: 30, weight: .bold))
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+                if let byline {
+                    Text(byline).foregroundStyle(.secondary)
+                }
+                HStack(spacing: 6) {
+                    Badge(text: game.engine.displayName)
+                    Badge(text: game.locale.displayName)
+                    Badge(text: backendText)
+                }
+                HStack(spacing: 10) {
+                    if isRunning {
+                        Button(role: .destructive) { model.stop(game) } label: {
+                            Label("停止", systemImage: "stop.fill").frame(minWidth: 88)
+                        }
+                        .controlSize(.extraLarge)
+                    } else {
+                        Button { model.launch(game) } label: {
+                            Label("启动", systemImage: "play.fill").frame(minWidth: 88)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.extraLarge)
+                        .keyboardShortcut(.return, modifiers: .command)
+                    }
+                    Button { model.gameSettings = .init(id: game.id) } label: {
+                        Label("设置", systemImage: "slider.horizontal.3")
+                    }
+                    .controlSize(.extraLarge)
+                }
+                .padding(.top, 6)
             }
-            .buttonStyle(.link)
+            .padding(.bottom, 4)
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 32)
+        .padding(.top, 72)
+        .padding(.bottom, 28)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background { backdrop }
     }
 
-    /// VNDB 上的简介、品牌、发售日等。
-    @ViewBuilder
-    private var infoSection: some View {
-        let isLoading = model.metadataLoading.contains(game.id)
-        Section {
-            if let m = game.metadata {
-                if let title = m.chineseTitle, title != game.title { LabeledContent("中文名", value: title) }
-                if let title = m.originalTitle, title != game.title { LabeledContent("原名", value: title) }
-                if !m.developers.isEmpty { LabeledContent("品牌", value: m.developers.joined(separator: "、")) }
-                if let released = m.releasedText { LabeledContent("发售", value: released) }
-                if let length = m.lengthText { LabeledContent("游玩时长", value: length) }
-                if let rating = m.ratingText { LabeledContent("VNDB 评分", value: rating) }
-                if let synopsis = m.synopsis {
-                    synopsisView(original: synopsis, translation: m.synopsisTranslation)
-                }
-            } else if isLoading {
-                HStack { ProgressView().controlSize(.small); Text("正在从 VNDB 获取资料…").foregroundStyle(.secondary) }
-            } else if game.vndbID != nil {
-                Text("资料还没获取到（可能是没联网）。").foregroundStyle(.secondary)
+    /// 封面模糊后铺在顶部，底部渐隐到窗口背景。
+    private var backdrop: some View {
+        ZStack {
+            if let cover {
+                Image(nsImage: cover)
+                    .resizable()
+                    .scaledToFill()
+                    .blur(radius: 50)
+                    .opacity(0.55)
             } else {
-                Text("还没关联 VNDB 条目。可以按标题自动匹配，或者用“搜索 VNDB…”手动选（会同时换封面）。")
-                    .foregroundStyle(.secondary)
+                CoverGradient(title: game.title).opacity(0.35)
             }
-        } header: {
-            HStack {
-                Text("资料")
+            LinearGradient(colors: [.clear, Color(nsColor: .windowBackgroundColor)], startPoint: .top, endPoint: .bottom)
+        }
+        .clipped()
+    }
+
+    /// 封面：可以把图片拖上来替换。
+    private var coverView: some View {
+        Group {
+            if let cover {
+                Image(nsImage: cover).resizable().scaledToFill()
+            } else {
+                CoverGradient(title: game.title)
+                    .overlay {
+                        Text(String(game.title.prefix(1)))
+                            .font(.system(size: 64, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+            }
+        }
+        .frame(width: 180, height: 240)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+        .overlay {
+            if isCoverDropTargeted {
+                RoundedRectangle(cornerRadius: 12).stroke(Color.accentColor, lineWidth: 3)
+            }
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first else { return false }
+            model.setCover(fromFile: url, for: game.id)
+            return true
+        } isTargeted: { isCoverDropTargeted = $0 }
+        .contextMenu { coverMenu }
+        .help("把图片拖到这里可以替换封面")
+    }
+
+    /// 标题上方的小字：VNDB 上的原名或中文名，和标题一样时不显示。
+    private var subtitle: String? {
+        guard let m = game.metadata else { return nil }
+        return [m.originalTitle, m.chineseTitle].compactMap { $0 }.first { $0 != game.title }
+    }
+
+    private var byline: String? {
+        guard let m = game.metadata else { return nil }
+        let parts = [m.developers.isEmpty ? nil : m.developers.joined(separator: "、"), m.releasedText].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    private var backendText: String {
+        model.backend(for: game) == .native ? NativeEngines.name(for: game.engine) ?? "原生" : "Wine"
+    }
+
+    // MARK: - 数据
+
+    private var stats: some View {
+        HStack(spacing: 0) {
+            Stat(title: "VNDB 评分", value: game.metadata?.ratingText ?? "—")
+            Divider().frame(height: 32)
+            Stat(title: "平均通关", value: game.metadata?.lengthText ?? "—")
+            Divider().frame(height: 32)
+            Stat(title: "已玩", value: playTime)
+            Divider().frame(height: 32)
+            Stat(title: "上次游玩", value: game.lastPlayedAt?.formatted(.relative(presentation: .named)) ?? "还没玩过")
+        }
+        .padding(.vertical, 12)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var playTime: String {
+        let minutes = Int(game.totalPlaySeconds / 60)
+        return minutes < 60 ? "\(minutes) 分钟" : "\(minutes / 60) 小时 \(minutes % 60) 分"
+    }
+
+    // MARK: - 简介
+
+    @ViewBuilder
+    private var aboutSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("简介").font(.title2.bold())
                 Spacer()
                 if let id = game.vndbID {
-                    Link("VNDB \(id)", destination: URL(string: "https://vndb.org/\(id)")!)
-                    Button("刷新") { model.fetchMetadata(for: game.id, silent: false) }.disabled(isLoading)
-                    Button("解除关联") { model.unlinkVNDB(for: game.id) }
-                } else {
-                    Button("自动匹配") { Task { await model.matchMetadata(for: game.id) } }.disabled(isLoading)
+                    Link("在 VNDB 上查看", destination: URL(string: "https://vndb.org/\(id)")!).font(.callout)
                 }
             }
-            .buttonStyle(.link).font(.caption)
+            if let synopsis = game.metadata?.synopsis {
+                synopsisView(original: synopsis, translation: game.metadata?.synopsisTranslation)
+            } else if isLoadingMetadata {
+                HStack { ProgressView().controlSize(.small); Text("正在从 VNDB 获取资料…").foregroundStyle(.secondary) }
+            } else if game.metadata != nil {
+                Text("VNDB 上没有这个游戏的简介。").foregroundStyle(.secondary)
+            } else if game.vndbID != nil {
+                HStack {
+                    Text("资料还没获取到（可能是没联网）。").foregroundStyle(.secondary)
+                    Button("重试") { model.fetchMetadata(for: game.id, silent: false) }
+                }
+            } else {
+                HStack {
+                    Text("还没关联 VNDB 条目。").foregroundStyle(.secondary)
+                    Button("按标题匹配") { Task { await model.matchMetadata(for: game.id) } }
+                    Button("搜索 VNDB…") { model.coverSearch = .init(id: game.id) }
+                }
+            }
         }
     }
 
-    /// 简介：有译文时默认显示译文；翻译中显示流式收到的部分。
+    /// 有译文时默认显示译文；翻译中显示流式收到的部分。
     private func synopsisView(original: String, translation: String?) -> some View {
         let partial = model.synopsisTranslating[game.id]
         let isTranslating = partial != nil
@@ -189,119 +223,75 @@ struct GameDetailView: View {
         } else {
             shown = original
         }
-        return VStack(alignment: .leading, spacing: 4) {
+        return VStack(alignment: .leading, spacing: 8) {
             Text(shown)
-                .lineLimit(isSynopsisExpanded || isTranslating ? nil : 4)
+                .font(.body)
+                .lineSpacing(4)
+                .lineLimit(isSynopsisExpanded || isTranslating ? nil : 6)
                 .textSelection(.enabled)
                 .foregroundStyle(partial?.isEmpty == true ? .secondary : .primary)
-            HStack(spacing: 12) {
-                if !isTranslating {
-                    Button(isSynopsisExpanded ? "收起" : "展开") { isSynopsisExpanded.toggle() }
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 14) {
                 if isTranslating {
                     ProgressView().controlSize(.mini)
                     Text("正在翻译…").foregroundStyle(.secondary)
-                } else if translation != nil {
-                    Button(showsOriginalSynopsis ? "显示译文" : "显示原文") { showsOriginalSynopsis.toggle() }
-                    Button("重新翻译") {
-                        showsOriginalSynopsis = false
-                        model.translateSynopsis(for: game.id)
-                    }
                 } else {
-                    Button("翻译简介") {
-                        showsOriginalSynopsis = false
-                        model.translateSynopsis(for: game.id)
+                    Button(isSynopsisExpanded ? "收起" : "展开全文") { isSynopsisExpanded.toggle() }
+                    if translation != nil {
+                        Button(showsOriginalSynopsis ? "显示译文" : "显示原文") { showsOriginalSynopsis.toggle() }
+                        Button("重新翻译") {
+                            showsOriginalSynopsis = false
+                            model.translateSynopsis(for: game.id)
+                        }
+                    } else {
+                        Button("翻译成中文") {
+                            showsOriginalSynopsis = false
+                            model.translateSynopsis(for: game.id)
+                        }
                     }
                 }
             }
-            .buttonStyle(.link).font(.caption)
+            .buttonStyle(.link)
+            .font(.callout)
         }
     }
 
-    private var isWine: Bool { model.backend(for: game) == .wine }
+    // MARK: - 菜单
 
-    /// 运行方式：自动 / Wine / 原生引擎。自动时在选项里注明实际会用哪个。
-    private var backendPicker: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Picker("运行方式", selection: $game.backend) {
-                Text("自动（\(backendName(automaticBackend))）").tag(GameBackend?.none)
-                Text("Wine").tag(GameBackend?.some(.wine))
-                if let native = NativeEngines.name(for: game.engine) {
-                    Text("原生（\(native)）").tag(GameBackend?.some(.native))
+    @ViewBuilder
+    private var coverMenu: some View {
+        Button("在 VNDB 上搜索封面…") { model.coverSearch = .init(id: game.id) }
+        Button("选择封面图片…") { model.chooseCoverFile(for: game.id) }
+        if cover != nil {
+            Button("移除封面") { model.removeCover(for: game.id) }
+        }
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Section("封面") { coverMenu }
+            Section("VNDB 资料") {
+                if game.vndbID != nil {
+                    Button("刷新资料") { model.fetchMetadata(for: game.id, silent: false) }.disabled(isLoadingMetadata)
+                    Button("解除关联") { model.unlinkVNDB(for: game.id) }
+                } else {
+                    Button("按标题匹配") { Task { await model.matchMetadata(for: game.id) } }.disabled(isLoadingMetadata)
                 }
             }
-            if model.backend(for: game) == .native {
-                Text(model.onscripterBinary == nil
-                     ? "这个 Kazusa 没有打包 ONScripter，无法用原生方式运行。"
-                     : "不经过 Wine，用 ONScripter 直接读取脚本和封包；存档仍在游戏目录里，和 Windows 版通用。")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var automaticBackend: GameBackend {
-        var copy = game
-        copy.backend = nil
-        return model.backend(for: copy)
-    }
-
-    private func backendName(_ backend: GameBackend) -> String {
-        backend == .native ? NativeEngines.name(for: game.engine) ?? "原生" : "Wine"
-    }
-
-    private var executableOptions: [String] {
-        candidates.contains(game.executable) ? candidates : [game.executable] + candidates
-    }
-
-    /// 改区域时，如果前缀还是默认的，就跟着换成对应区域的默认前缀。
-    private var localeBinding: Binding<GameLocale> {
-        Binding(
-            get: { game.locale },
-            set: { newValue in
-                if game.prefixName == game.locale.defaultPrefixName {
-                    game.prefixName = newValue.defaultPrefixName
+            Section {
+                Button("打开翻译悬浮窗") { model.overlay.show(game: game) }
+                Button("在 Finder 中显示") { NSWorkspace.shared.activateFileViewerSelecting([game.executableURL]) }
+                Button("打开日志") { open(model.logFile(for: game)) }
+                if model.backend(for: game) == .wine {
+                    Button("打开 C 盘（前缀）") { open(model.prefixDriveC(for: game)) }
                 }
-                game.locale = newValue
             }
-        )
-    }
-
-    private var playTime: String {
-        let minutes = Int(game.totalPlaySeconds / 60)
-        let total = minutes < 60 ? "\(minutes) 分钟" : "\(minutes / 60) 小时 \(minutes % 60) 分"
-        guard let last = game.lastPlayedAt else { return "还没玩过" }
-        return "已玩 \(total) · 上次 \(last.formatted(.relative(presentation: .named)))"
-    }
-
-    private func reload() async {
-        argumentsText = game.arguments.joined(separator: " ")
-        glossaryText = game.translation.glossary
-            .sorted { $0.key < $1.key }
-            .map { "\($0.key)=\($0.value)" }
-            .joined(separator: "\n")
-        let directory = game.directory
-        let title = game.title
-        let result = await Task.detached {
-            let paths = DirectoryScanner.relativePaths(in: directory, maxDepth: 3, maxEntries: 20_000)
-            return (GameInspector.rankExecutables(paths: paths, directoryName: title, directory: directory),
-                    EngineDetector.detect(relativePaths: paths))
-        }.value
-        candidates = result.0
-        detection = result.1
-    }
-
-    private func commitArguments() {
-        let args = argumentsText.split(separator: " ").map(String.init)
-        if args != game.arguments { game.arguments = args }
-    }
-
-    private func commitGlossary() {
-        var glossary: [String: String] = [:]
-        for line in glossaryText.split(whereSeparator: \.isNewline) {
-            let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-            if parts.count == 2, !parts[0].isEmpty { glossary[parts[0]] = parts[1] }
+            Section {
+                Button("从游戏库移除", role: .destructive) { model.remove(game) }
+            }
+        } label: {
+            Label("更多", systemImage: "ellipsis.circle")
         }
-        if glossary != game.translation.glossary { game.translation.glossary = glossary }
     }
 
     private func open(_ url: URL) {
@@ -310,5 +300,32 @@ struct GameDetailView: View {
         } else {
             model.alert = .init(title: "还不存在", message: "\(url.path)\n\n启动一次游戏后才会生成。")
         }
+    }
+}
+
+private struct Stat: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(value).font(.title3.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+            Text(title).font(.caption).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// 没有封面时用标题算一个稳定的渐变色，方便区分。
+struct CoverGradient: View {
+    let title: String
+
+    var body: some View {
+        let hash = title.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }
+        let hue = Double(hash % 360) / 360
+        LinearGradient(
+            colors: [Color(hue: hue, saturation: 0.55, brightness: 0.85), Color(hue: hue + 0.08, saturation: 0.7, brightness: 0.55)],
+            startPoint: .topLeading, endPoint: .bottomTrailing
+        )
     }
 }

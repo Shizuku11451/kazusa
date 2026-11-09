@@ -18,7 +18,7 @@
 | 游戏库 | 拖入文件夹或 exe 即可导入。自动识别引擎（KiriKiri、NScripter、Ren'Py、Unity 等 15 种）和主程序，并按文件名判断是汉化版还是日文原版 |
 | 封面 | 导入时自动获取：先找游戏目录里的 cover / package 等图片，没有就按标题（会去掉“HD版”“汉化版”、版本号等修饰）查 [VNDB](https://vndb.org)，只自动采用非成人的封面。也可以右键“搜索封面…”手动挑选，或者把图片拖到详情页。联网时只会把游戏标题发送给 api.vndb.org |
 | 资料 | 匹配到 VNDB 条目后自动拉取中文名、原名、品牌、发售日、平均游玩时长、评分和简介（去掉剧透段落）。用目录里的图当封面的游戏也会按标题匹配一次；匹配错了可以在详情页解除关联或手动搜索。VNDB 的简介大多是英文，可以一键用设置里的 LLM 翻成中文（流式显示，译文会保存，可切回原文） |
-| 原生运行 | NScripter 游戏默认用打包的 [ONScripter](ThirdParty/onscripter-yuri/)（OnscripterYuri）直接运行，不需要 Wine 和 Rosetta：自动判断脚本编码（Shift-JIS / GBK / UTF-8），按区域选系统字体，存档仍在游戏目录。在详情页的“运行方式”里可以改回 Wine |
+| 原生运行 | NScripter 游戏默认用打包的 [ONScripter](ThirdParty/onscripter-yuri/)（OnscripterYuri）直接运行，不需要 Wine 和 Rosetta：自动判断脚本编码（Shift-JIS / GBK / UTF-8），按区域选系统字体，存档仍在游戏目录。在游戏的“设置”里可以把“运行方式”改回 Wine |
 | 转区 | 每个游戏可选 简中 / 繁中 / 日文 区域，对应 `zh_CN` / `zh_TW` / `ja_JP` 的 locale，每种区域共用一个 Wine 前缀 |
 | 字体 | 按区域把 MS Gothic、SimSun 等替换成 macOS 自带字体（日文用ヒラギノ角ゴシック，中文用冬青黑体），并配置字体链接，菜单和对话框也不会出方块字 |
 | 运行时 | 自动发现 Wine（/Applications、Homebrew），也可以从 `.tar.xz` 导入到 Kazusa 自己的 Runtimes 目录 |
@@ -112,6 +112,6 @@ Kazusa **不链接**下列组件，只在运行时把它们作为独立程序调
 
 提交代码即表示你同意以 GPL-3.0-or-later 授权你的贡献。请不要提交任何游戏文件、游戏截图或其他受版权保护的素材。
 
-- 遇到游戏打不开、乱码、黑屏，请用「游戏兼容性问题」模板提 issue，附上详情页里的日志。
+- 遇到游戏打不开、乱码、黑屏，请用「游戏兼容性问题」模板提 issue，附上日志（详情页右上角 ⋯ →“打开日志”）。
 - 开发时可以设置 `KAZUSA_HOME=/tmp/kazusa-dev` 使用独立的数据目录，不影响自己的游戏库。
 - `swift run kazusa-cli` 可以不开界面直接测试运行时、游戏识别和启动。

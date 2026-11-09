@@ -16,7 +16,9 @@ final class AppModel {
     /// 已加载的封面。没有封面的游戏不在这里，卡片上显示渐变占位。
     var coverImages: [UUID: NSImage] = [:]
     /// 正在为哪个游戏打开“搜索封面”窗口。
-    var coverSearch: CoverSearchRequest?
+    var coverSearch: GameRequest?
+    /// 正在编辑哪个游戏的设置（运行方式、翻译等）。
+    var gameSettings: GameRequest?
     /// 正在从 VNDB 拉取资料的游戏。
     var metadataLoading: Set<UUID> = []
     /// 正在翻译简介的游戏，值是目前为止流式收到的译文。
@@ -24,6 +26,8 @@ final class AppModel {
 
     var games: [Game] = []
     var selectedGameID: UUID?
+    /// 当前打开的游戏详情页；为空时显示游戏库。
+    var openedGameID: UUID?
     var runningGameIDs: Set<UUID> = []
     var runtimes: [WineRuntime] = []
     /// 正在进行的长操作（初始化前缀等），显示在界面上。
@@ -40,7 +44,13 @@ final class AppModel {
 
     @ObservationIgnored lazy var overlay = TranslatorOverlayController(model: self)
 
-    struct CoverSearchRequest: Identifiable {
+    /// 打开游戏详情页，同时选中它（翻译悬浮窗会用选中的游戏）。
+    func open(_ id: UUID) {
+        selectedGameID = id
+        openedGameID = id
+    }
+
+    struct GameRequest: Identifiable {
         let id: UUID
     }
 
@@ -150,6 +160,7 @@ final class AppModel {
     func remove(_ game: Game) {
         games.removeAll { $0.id == game.id }
         if selectedGameID == game.id { selectedGameID = nil }
+        if openedGameID == game.id { openedGameID = nil }
         saveGames()
         covers.remove(for: game.id)
         coverImages[game.id] = nil

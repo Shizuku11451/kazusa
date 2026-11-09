@@ -24,7 +24,7 @@ ThirdParty/onscripter-yuri/build.sh
 
 ## Kazusa 怎么用它
 
-引擎识别为 NScripter 的游戏，“运行方式”默认是**自动**，也就是用 ONScripter；在详情页可以改回 Wine（例如改过引擎的汉化版跑不起来时）。启动参数：
+引擎识别为 NScripter 的游戏，“运行方式”默认是**自动**，也就是用 ONScripter；在游戏的“设置”里可以改回 Wine（例如改过引擎的汉化版跑不起来时）。启动参数：
 
 ```
 onsyuri --root <游戏目录> --enc:<sjis|gbk|utf8> [--font <字体>] [游戏的启动参数...]
@@ -34,4 +34,4 @@ onsyuri --root <游戏目录> --enc:<sjis|gbk|utf8> [--font <字体>] [游戏的
 - **字体**：游戏目录里有 `default.ttf` 就用它，否则按区域用系统自带的ヒラギノ角ゴシック（日文）或冬青黑体（中文）；
 - **存档**：留在游戏目录（ONScripter 的默认位置），和 Windows 版通用。
 
-更多参数（`--fullscreen`、`--scale`、`--save-dir` 等）运行 `prebuilt/onsyuri --help` 查看，填在详情页的“启动参数”里即可。
+更多参数（`--fullscreen`、`--scale`、`--save-dir` 等）运行 `prebuilt/onsyuri --help` 查看，填在游戏“设置”的“启动参数”里即可。
