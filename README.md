@@ -36,6 +36,8 @@ scripts/test.sh             # 跑单元测试（会自动处理只装了 CLT 时
 swift run kazusa-cli        # 开发用命令行：安装运行时、识别游戏、不开界面直接启动游戏
 ```
 
+`build-app.sh` 默认用 ad-hoc 签名。这种签名下，macOS 按每次构建的程序指纹记录屏幕录制权限，**重新构建后要重新授权**。本机开发时可以建一个自签名的代码签名证书，取名 `Kazusa Local Signing`（钥匙串访问 → 证书助理 → 创建证书，证书类型选“代码签名”）。脚本找到这个证书就会用它签名，之后重新构建，权限也一直有效。也可以用 `KAZUSA_SIGN_IDENTITY` 指定别的证书。
+
 ## 运行游戏前的准备
 
 1. **Rosetta 2**（Apple 芯片）：`softwareupdate --install-rosetta --agree-to-license`

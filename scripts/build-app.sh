@@ -62,8 +62,17 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# ad-hoc 签名：屏幕录制权限是按签名记的，不签名每次重新构建都得重新授权。
+# 签名。屏幕录制等权限是按签名记的：
+# - ad-hoc 签名只认这一次构建的 cdhash，每次重新构建都得重新授权；
+# - 用固定的证书签名，系统认“bundle ID + 证书”，重新构建后权限仍然有效。
+# 默认找钥匙串里名为 “Kazusa Local Signing” 的证书（本机自签名即可，见 README），
+# 也可以用 KAZUSA_SIGN_IDENTITY 指定；都没有就退回 ad-hoc（CI 就是这样）。
+IDENTITY="${KAZUSA_SIGN_IDENTITY:-}"
+if [[ -z "$IDENTITY" ]] && security find-certificate -c "Kazusa Local Signing" >/dev/null 2>&1; then
+    IDENTITY="Kazusa Local Signing"
+fi
+IDENTITY="${IDENTITY:--}"
 # 内嵌的可执行文件要先单独签名，再签整个 .app。
-codesign --force --sign - --timestamp=none "$ONS/onsyuri"
-codesign --force --sign - --timestamp=none "$APP"
-echo "✅ $APP"
+codesign --force --sign "$IDENTITY" --timestamp=none "$ONS/onsyuri"
+codesign --force --sign "$IDENTITY" --timestamp=none "$APP"
+echo "✅ ${APP}（签名：$([[ "$IDENTITY" == - ]] && echo ad-hoc || echo "$IDENTITY")）"
