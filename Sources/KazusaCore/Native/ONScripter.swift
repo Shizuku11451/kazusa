@@ -24,15 +24,39 @@ extension Game {
     }
 }
 
-/// 打包进 Kazusa 的原生引擎。
+/// 打包进 Kazusa 的原生引擎：NScripter 用 ONScripter，KiriKiri 用 krkr2。
 public enum NativeEngines {
     public static func supports(_ engine: EngineKind) -> Bool {
-        engine == .nscripter
+        engine == .nscripter || engine == .kirikiri
     }
 
     /// 原生引擎的名字，用于界面显示。
     public static func name(for engine: EngineKind) -> String? {
-        supports(engine) ? "ONScripter" : nil
+        switch engine {
+        case .nscripter: "ONScripter"
+        case .kirikiri: "krkr2"
+        default: nil
+        }
+    }
+
+    /// 找打包的引擎程序；没打包（或 Intel Mac 上的 krkr2）返回 nil。
+    public static func binary(for engine: EngineKind) -> URL? {
+        switch engine {
+        case .nscripter: ONScripter.binary()
+        case .kirikiri: KiriKiri.binary()
+        default: nil
+        }
+    }
+
+    /// 读游戏目录，算出原生引擎的启动参数。
+    public static func launchArguments(for game: Game) -> [String] {
+        game.engine == .kirikiri ? KiriKiri.arguments(for: game) : ONScripter.launchArguments(for: game)
+    }
+
+    /// 这个游戏能不能用原生引擎跑，不能时给出原因（自动模式据此改用 Wine）。
+    /// KiriKiri 游戏要看封包有没有加密；NScripter 游戏不用检查。
+    public static func unsupportedReason(for game: Game) -> String? {
+        game.engine == .kirikiri ? KiriKiri.readiness(of: game.directory).explanation : nil
     }
 }
 

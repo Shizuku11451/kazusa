@@ -12,7 +12,7 @@ let usage = """
   inspect <游戏目录>                 识别引擎、主程序和区域
   run <游戏目录或 exe> [--locale ja|zhs|zht] [--prefix 名字] [--backend wine|native] [--debug]
                                     启动游戏并等待退出（日志输出到终端）；
-                                    NScripter 游戏默认用打包的 ONScripter 原生运行
+                                    NScripter 游戏默认用打包的 ONScripter、KiriKiri 游戏用 krkr2 原生运行
   wine [--locale ...] [--prefix ...] <参数...>
                                     在前缀里执行任意 wine 命令（如 winecfg）
   cover <标题>                       在 VNDB 上搜索封面（只打印结果，不下载）
@@ -99,17 +99,21 @@ case "run":
     var game = Game(title: inspection.title, directory: dir,
                     executable: isExe ? url.lastPathComponent : inspection.suggestedExecutable ?? "",
                     engine: inspection.engine.engine, locale: locale ?? inspection.suggestedLocale, backend: backendOption)
-    let onscripter = ONScripter.binary()
-    let backend = game.resolvedBackend(nativeAvailable: onscripter != nil)
+    let nativeBinary = NativeEngines.binary(for: game.engine)
+    let unsupported = NativeEngines.unsupportedReason(for: game)
+    if let unsupported, game.backend == nil, nativeBinary != nil { print("\(unsupported)，改用 Wine") }
+    let backend = game.resolvedBackend(nativeAvailable: nativeBinary != nil && unsupported == nil)
     let launcher = GameLauncher(paths: paths)
     let start: (@escaping @Sendable (GameExit) -> Void) async throws -> Void
     if backend == .native {
-        guard NativeEngines.supports(game.engine) else { fail("\(game.engine.displayName) 没有原生引擎，只能用 Wine") }
-        guard let onscripter else { fail("没有找到 ONScripter，先运行 ThirdParty/onscripter-yuri/build.sh") }
-        let arguments = ONScripter.launchArguments(for: game)
-        print("引擎 \(game.engine.displayName) · 区域 \(game.locale.displayName) · 原生 ONScripter")
-        print("onsyuri \(arguments.joined(separator: " "))")
-        start = { try await launcher.launchNative(game, binary: onscripter, arguments: arguments, onExit: $0) }
+        guard let engineName = NativeEngines.name(for: game.engine) else {
+            fail("\(game.engine.displayName) 没有原生引擎，只能用 Wine")
+        }
+        guard let nativeBinary else { fail("没有找到 \(engineName)，先运行 ThirdParty 里对应的 build.sh") }
+        let arguments = NativeEngines.launchArguments(for: game)
+        print("引擎 \(game.engine.displayName) · 区域 \(game.locale.displayName) · 原生 \(engineName)")
+        print("\(nativeBinary.lastPathComponent) \(arguments.joined(separator: " "))")
+        start = { try await launcher.launchNative(game, binary: nativeBinary, arguments: arguments, onExit: $0) }
     } else {
         guard !game.executable.isEmpty else { fail("没有找到 exe") }
         if let prefixName { game.prefixName = prefixName }

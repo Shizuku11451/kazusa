@@ -31,6 +31,10 @@ struct GameSettingsView: View {
                             Text("原生（\(native)）").tag(GameBackend?.some(.native))
                         }
                     }
+                    if let native = NativeEngines.name(for: game.engine), let reason = model.nativeUnsupported[game.id] {
+                        Text("\(reason)，自动模式下用 Wine。也可以手动选“原生（\(native)）”试试。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     if isWine {
                         Picker("主程序", selection: $game.executable) {
                             ForEach(executableOptions, id: \.self) { Text($0.isEmpty ? "（无）" : $0).tag($0) }
@@ -110,6 +114,7 @@ struct GameSettingsView: View {
         .onChange(of: glossaryText) { commitGlossary() }
         .onChange(of: game.engine) {
             if game.backend == .native && !NativeEngines.supports(game.engine) { game.backend = nil }
+            model.refreshNativeSupport(for: game)
         }
         .task(id: game.id) { await reload() }
     }

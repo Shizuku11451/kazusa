@@ -84,6 +84,7 @@ final class AppModel {
         refreshRuntimes()
         registerHotKeys()
         loadCovers()
+        for game in games { refreshNativeSupport(for: game) }
         for game in games where coverImages[game.id] == nil {
             autoFetchCover(for: game.id)
         }
@@ -145,8 +146,8 @@ final class AppModel {
         }
         Task {
             let inspection = await Task.detached { GameInspector.inspect(directory: directory) }.value
-            // NScripter 游戏可以没有 exe（只有脚本和封包），用原生引擎运行。
-            let nativeOnly = NativeEngines.supports(inspection.engine.engine) && onscripterBinary != nil
+            // NScripter / KiriKiri 游戏可以没有 exe（只有脚本和封包），用原生引擎运行。
+            let nativeOnly = nativeBinaries[inspection.engine.engine] != nil
             let executable = isExe ? url.lastPathComponent : inspection.suggestedExecutable ?? (nativeOnly ? "" : nil)
             guard let executable else {
                 alert = AlertItem(title: "没有找到游戏程序", message: "“\(directory.lastPathComponent)”里没有 .exe 文件。")
@@ -163,6 +164,7 @@ final class AppModel {
             games.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             selectedGameID = game.id
             saveGames()
+            refreshNativeSupport(for: game)
             autoFetchCover(for: game.id)
         }
     }
@@ -360,11 +362,30 @@ final class AppModel {
 
     // MARK: - 启动
 
-    /// 打包的 ONScripter；开发时用仓库里构建好的。
-    let onscripterBinary = ONScripter.binary()
+    /// 打包的原生引擎（ONScripter、krkr2）；开发时用仓库里构建好的。
+    let nativeBinaries: [EngineKind: URL] = Dictionary(
+        uniqueKeysWithValues: EngineKind.allCases.compactMap { e in NativeEngines.binary(for: e).map { (e, $0) } })
+    /// 原生引擎跑不了的游戏和原因（KiriKiri 封包加了密等），自动模式下这些游戏用 Wine。
+    var nativeUnsupported: [UUID: String] = [:]
+    /// 这一次是自动模式选的原生引擎，失败了可以退回 Wine。
+    @ObservationIgnored private var automaticNativeLaunches: Set<UUID> = []
+    /// 用户手动停止的游戏，退出码不算失败。
+    @ObservationIgnored private var stoppingGameIDs: Set<UUID> = []
 
     func backend(for game: Game) -> GameBackend {
-        game.resolvedBackend(nativeAvailable: onscripterBinary != nil)
+        game.resolvedBackend(nativeAvailable: nativeBinaries[game.engine] != nil && nativeUnsupported[game.id] == nil)
+    }
+
+    /// 重新检查游戏能不能用原生引擎跑（导入、改引擎后调用）。
+    func refreshNativeSupport(for game: Game) {
+        guard nativeBinaries[game.engine] != nil else {
+            nativeUnsupported[game.id] = nil
+            return
+        }
+        Task {
+            let reason = await Task.detached { NativeEngines.unsupportedReason(for: game) }.value
+            nativeUnsupported[game.id] = reason
+        }
     }
 
     func launch(_ game: Game) {
@@ -407,19 +428,24 @@ final class AppModel {
     }
 
     private func launchNative(_ game: Game) {
-        guard NativeEngines.supports(game.engine) else {
+        guard let engineName = NativeEngines.name(for: game.engine) else {
             alert = AlertItem(title: "没有对应的原生引擎",
                               message: "\(game.engine.displayName) 目前只能用 Wine 运行，请把“运行方式”改成 Wine。")
             return
         }
-        guard let binary = onscripterBinary else {
-            alert = AlertItem(title: "找不到 ONScripter", message: "这个 Kazusa 没有打包 ONScripter，请把“运行方式”改成 Wine。")
+        guard let binary = nativeBinaries[game.engine] else {
+            let reason = game.engine == .kirikiri && !SystemCheck.isAppleSilicon
+                ? "krkr2 只支持 Apple 芯片的 Mac" : "这个 Kazusa 没有打包 \(engineName)"
+            alert = AlertItem(title: "找不到 \(engineName)", message: "\(reason)，请把“运行方式”改成 Wine。")
             return
         }
+        // 有 exe 才能退回 Wine（NScripter 游戏可能只有脚本）。
+        let canFallBack = game.backend == nil && !game.executable.isEmpty
         runningGameIDs.insert(game.id)
         Task {
             do {
-                let arguments = await Task.detached { ONScripter.launchArguments(for: game) }.value
+                let arguments = await Task.detached { NativeEngines.launchArguments(for: game) }.value
+                if canFallBack { automaticNativeLaunches.insert(game.id) }
                 try await launcher.launchNative(game, binary: binary, arguments: arguments) { [weak self] exit in
                     Task { @MainActor in self?.didExit(exit) }
                 }
@@ -434,6 +460,7 @@ final class AppModel {
     }
 
     func stop(_ game: Game) {
+        stoppingGameIDs.insert(game.id)
         stopTextHook(for: game.id)
         Task { await launcher.stop(game.id) }
     }
@@ -441,7 +468,23 @@ final class AppModel {
     private func didExit(_ exit: GameExit) {
         runningGameIDs.remove(exit.gameID)
         stopTextHook(for: exit.gameID)
+        let wasAutomaticNative = automaticNativeLaunches.remove(exit.gameID) != nil
+        let stoppedByUser = stoppingGameIDs.remove(exit.gameID) != nil
         guard let i = games.firstIndex(where: { $0.id == exit.gameID }) else { return }
+        // 自动选的原生引擎一启动就出错（插件不支持、脚本用了没实现的功能等），改用 Wine 再启动一次，
+        // 并记住这个游戏用 Wine。
+        if wasAutomaticNative && !stoppedByUser && exit.exitCode != 0 && exit.duration < 60 {
+            let engineName = NativeEngines.name(for: games[i].engine) ?? "原生引擎"
+            games[i].backend = .wine
+            saveGames()
+            alert = AlertItem(
+                title: "\(engineName) 没能运行“\(games[i].title)”，已改用 Wine",
+                message: "以后这个游戏都用 Wine 启动。想再试 \(engineName)，可以在游戏设置的“运行方式”里改回来。"
+                    + "出错原因在游戏详情的“打开日志”里。"
+            )
+            launch(games[i])
+            return
+        }
         games[i].lastPlayedAt = exit.startedAt
         games[i].totalPlaySeconds += exit.duration
         saveGames()

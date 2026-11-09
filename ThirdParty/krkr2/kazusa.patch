@@ -1,0 +1,265 @@
+diff --git a/cpp/core/environ/Application.cpp b/cpp/core/environ/Application.cpp
+index 3a5ff33..c7d35ca 100644
+--- a/cpp/core/environ/Application.cpp
++++ b/cpp/core/environ/Application.cpp
+@@ -496,7 +496,8 @@ void tTVPApplication::ShowException(const ttstr &e) {
+     TVPShowDialogMessage(e.AsStdString(),
+                          TVPGetErrorDialogTitle().AsStdString());
+     TVPSystemUninit();
+-    TVPExitApplication(0);
++    // Unhandled engine/script error: report failure so launchers can tell.
++    TVPExitApplication(1);
+ }
+ void tTVPApplication::Run() {
+     try {
+diff --git a/cpp/core/environ/apple/macos/platform.mm b/cpp/core/environ/apple/macos/platform.mm
+index 0d13d40..1fa96ba 100644
+--- a/cpp/core/environ/apple/macos/platform.mm
++++ b/cpp/core/environ/apple/macos/platform.mm
+@@ -89,7 +89,9 @@ static bool _TVPCreateFolders(const ttstr &folder) {
+     if(!TVPCreateFolders(parent))
+         return false;
+ 
+-    return !std::filesystem::create_directory(folder.AsStdString().c_str());
++    std::error_code ec;
++    std::filesystem::create_directory(folder.AsStdString().c_str(), ec);
++    return !ec;
+ }
+ 
+ bool TVPCreateFolders(const ttstr &folder) {
+diff --git a/cpp/core/environ/cocos2d/MainScene.cpp b/cpp/core/environ/cocos2d/MainScene.cpp
+index d1fd014..69b76a1 100644
+--- a/cpp/core/environ/cocos2d/MainScene.cpp
++++ b/cpp/core/environ/cocos2d/MainScene.cpp
+@@ -31,6 +31,12 @@
+ #include "CCKeyCodeConv.h"
+ #include "RenderUtils.h"
+ #include "TVPLog.h"
++#if (CC_TARGET_PLATFORM == CC_PLATFORM_WIN32) ||                               \
++    (CC_TARGET_PLATFORM == CC_PLATFORM_MAC) ||                                 \
++    (CC_TARGET_PLATFORM == CC_PLATFORM_LINUX)
++#define KRKR2_DESKTOP_HOST 1
++#include "launch/DesktopLaunch.h"
++#endif
+ 
+ USING_NS_CC;
+ 
+@@ -475,8 +481,9 @@ void TVPMainScene::initialize() {
+     ScreenRatio = screenSize.height / designSize.height;
+     designSize.width = designSize.height * screenSize.width / screenSize.height;
+     initWithSize(designSize);
+-    addChild(LayerColor::create(Color4B::BLACK, designSize.width,
+-                                designSize.height));
++    _background =
++        LayerColor::create(Color4B::BLACK, designSize.width, designSize.height);
++    addChild(_background);
+     GameNode = cocos2d::Node::create();
+     // horizontal
+     // std::swap(designSize.width, designSize.height);
+@@ -703,9 +710,11 @@ void TVPMainScene::doStartup(float dt, std::string path) {
+     //_ResotreGLStatues(); // already in update()
+     GLubyte handlerOpacity =
+         pGlobalCfgMgr->GetValue<float>("menu_handler_opa", 0.15f) * 255;
+-    _gameMenu = TVPGameMainMenu::create(handlerOpacity);
+-    GameNode->addChild(_gameMenu, GAME_MENU_ORDER);
+-    _gameMenu->shrinkWithTime(1);
++    if(!DesktopHostMode()) {
++        _gameMenu = TVPGameMainMenu::create(handlerOpacity);
++        GameNode->addChild(_gameMenu, GAME_MENU_ORDER);
++        _gameMenu->shrinkWithTime(1);
++    }
+     if(TVPWindowLayer::_consoleWin) {
+         TVPWindowLayer::_consoleWin->removeFromParent();
+         TVPWindowLayer::_consoleWin = nullptr;
+@@ -797,6 +806,77 @@ void TVPMainScene::update(float delta) {
+ 
+ cocos2d::Size TVPMainScene::getUINodeSize() { return UINode->getContentSize(); }
+ 
++bool TVPMainScene::DesktopHostMode() {
++#ifdef KRKR2_DESKTOP_HOST
++    return !krkr::launch::DesktopTarget().empty();
++#else
++    return false;
++#endif
++}
++
++void TVPMainScene::fitHostWindow(const cocos2d::Size &gameSize) {
++#ifdef KRKR2_DESKTOP_HOST
++    if(!DesktopHostMode() || gameSize.width < 1 || gameSize.height < 1 ||
++       gameSize.equals(_fittedGameSize))
++        return;
++    _fittedGameSize = gameSize;
++    auto *glview =
++        static_cast<GLViewImpl *>(Director::getInstance()->getOpenGLView());
++    if(!glview || glview->isFullscreen())
++        return;
++
++    // Fit inside 85% of the monitor; scale small games up to ~1280 wide.
++    cocos2d::Size monitor = glview->getMonitorSize();
++    float scale = std::max(1.f, 1280.f / gameSize.width);
++    if(monitor.width > 0 && monitor.height > 0)
++        scale = std::min({ scale, monitor.width * 0.85f / gameSize.width,
++                           monitor.height * 0.85f / gameSize.height });
++    const float fw = std::round(gameSize.width * scale);
++    const float fh = std::round(gameSize.height * scale);
++
++    glview->setFrameSize(fw, fh);
++    cocos2d::Size design = glview->getDesignResolutionSize();
++    design.width = design.height * fw / fh;
++    glview->setDesignResolutionSize(design.width, design.height,
++                                    ResolutionPolicy::SHOW_ALL);
++    Director::getInstance()->setViewport();
++    if(monitor.width > 0 && monitor.height > 0)
++        glfwSetWindowPos(glview->getWindow(), int((monitor.width - fw) / 2),
++                         int((monitor.height - fh) / 2));
++
++    ScreenRatio = fh / design.height;
++    setContentSize(design);
++    if(_background)
++        _background->setContentSize(design);
++    GameNode->setContentSize(design);
++    UINode->setContentSize(design);
++    UISize = design;
++    TVPWindowLayer::RelayoutAll(design);
++#else
++    (void)gameSize;
++#endif
++}
++
++void TVPHostWindowDidResizeGame(TVPWindowLayer *, const cocos2d::Size &size) {
++    if(auto *scene = TVPMainScene::GetInstance())
++        scene->fitHostWindow(size);
++}
++
++void TVPHostWindowDidSetCaption(TVPWindowLayer *layer,
++                                const std::string &caption) {
++#ifdef KRKR2_DESKTOP_HOST
++    if(!layer->IsMainWindow() || !TVPMainScene::DesktopHostMode() ||
++       caption.empty())
++        return;
++    if(auto *glview =
++           static_cast<GLViewImpl *>(Director::getInstance()->getOpenGLView()))
++        glfwSetWindowTitle(glview->getWindow(), caption.c_str());
++#else
++    (void)layer;
++    (void)caption;
++#endif
++}
++
+ void TVPMainScene::addLayer(TVPWindowLayer *lay) {
+     GameNode->addChild(lay, GAME_SCENE_ORDER);
+     lay->setViewSize(GameNode->getContentSize());
+@@ -993,14 +1073,16 @@ void TVPMainScene::showWindowManagerOverlay(bool bVisible) {
+                 TVPWindowManagerOverlay::create();
+             GameNode->addChild(TVPWindowLayer::_windowMgrOverlay,
+                                GAME_WINMGR_ORDER);
+-            _gameMenu->setVisible(false);
++            if(_gameMenu)
++                _gameMenu->setVisible(false);
+         }
+     } else {
+         if(TVPWindowLayer::_windowMgrOverlay) {
+             CancelPointerInput();
+             TVPWindowLayer::_windowMgrOverlay->removeFromParent();
+             TVPWindowLayer::_windowMgrOverlay = nullptr;
+-            _gameMenu->setVisible(true);
++            if(_gameMenu)
++                _gameMenu->setVisible(true);
+         }
+     }
+ }
+diff --git a/cpp/core/environ/cocos2d/MainScene.h b/cpp/core/environ/cocos2d/MainScene.h
+index 46aea1d..9bee0c2 100644
+--- a/cpp/core/environ/cocos2d/MainScene.h
++++ b/cpp/core/environ/cocos2d/MainScene.h
+@@ -59,6 +59,11 @@ public:
+ 
+     void showWindowManagerOverlay(bool bVisible);
+ 
++    // Kazusa desktop host mode: launched with --game on a desktop platform.
++    // No touch menu; the OS window takes the game's aspect ratio.
++    static bool DesktopHostMode();
++    void fitHostWindow(const cocos2d::Size &gameSize);
++
+     void toggleVirtualMouseCursor();
+     void showVirtualMouseCursor(bool bVisible);
+     bool isVirtualMouseMode() const;
+@@ -107,5 +112,7 @@ private:
+     cocos2d::Size SceneSize, UISize;
+     cocos2d::Node *UINode, *GameNode;
+     cocos2d::EventListenerTouchOneByOne *_touchListener;
+-    TVPGameMainMenu *_gameMenu;
++    TVPGameMainMenu *_gameMenu = nullptr;
++    cocos2d::Node *_background = nullptr;
++    cocos2d::Size _fittedGameSize;
+ };
+diff --git a/cpp/core/environ/impl/TVPWindow.cpp b/cpp/core/environ/impl/TVPWindow.cpp
+index f2b85c1..44e34cd 100644
+--- a/cpp/core/environ/impl/TVPWindow.cpp
++++ b/cpp/core/environ/impl/TVPWindow.cpp
+@@ -559,9 +559,18 @@ void TVPWindowLayer::ResetDrawSprite() const {
+     }
+ }
+ 
++void TVPWindowLayer::RelayoutAll(const cocos2d::Size &viewSize) {
++    for(auto *w = _lastWindowLayer; w; w = w->_prevWindow) {
++        w->setViewSize(viewSize);
++        w->RecalcPaintBox();
++    }
++}
++
+ void TVPWindowLayer::RecalcPaintBox() {
+     if(!LayerWidth || !LayerHeight)
+         return;
++    if(IsMainWindow())
++        TVPHostWindowDidResizeGame(this, getContentSize());
+     ResetDrawSprite();
+     cocos2d::Size size = getViewSize();
+     cocos2d::Size contSize = getContentSize();
+diff --git a/cpp/core/environ/impl/TVPWindow.h b/cpp/core/environ/impl/TVPWindow.h
+index 039df21..e9f6194 100644
+--- a/cpp/core/environ/impl/TVPWindow.h
++++ b/cpp/core/environ/impl/TVPWindow.h
+@@ -12,6 +12,11 @@
+ #include "ui/ConsoleWindow.h"
+ 
+ class TVPWindowManagerOverlay;
++class TVPWindowLayer;
++
++// Kazusa: desktop host window follows the game's main window (see MainScene.cpp).
++void TVPHostWindowDidResizeGame(TVPWindowLayer *layer, const cocos2d::Size &gameSize);
++void TVPHostWindowDidSetCaption(TVPWindowLayer *layer, const std::string &caption);
+ 
+ class TVPWindowLayer : public cocos2d::extension::ScrollView,
+                        public iWindowLayer {
+@@ -180,7 +185,16 @@ public:
+ 
+     const char *GetCaption() override { return _caption.c_str(); }
+ 
+-    void SetCaption(const std::string &s) override { _caption = s; }
++    void SetCaption(const std::string &s) override {
++        _caption = s;
++        TVPHostWindowDidSetCaption(this, s);
++    }
++
++    // Kazusa: the first window still alive is the game's main window.
++    bool IsMainWindow() const { return _prevWindow == nullptr; }
++
++    // Kazusa: refit every window after the host view changed size.
++    static void RelayoutAll(const cocos2d::Size &viewSize);
+ 
+     void ResetDrawSprite() const;
+ 
+diff --git a/vcpkg/ports/ffmpeg/portfile.cmake b/vcpkg/ports/ffmpeg/portfile.cmake
+index fede09d..74adc05 100644
+--- a/vcpkg/ports/ffmpeg/portfile.cmake
++++ b/vcpkg/ports/ffmpeg/portfile.cmake
+@@ -35,6 +35,8 @@ elseif(VCPKG_TARGET_IS_WINDOWS)
+     string(APPEND OPTIONS " --target-os=win32 --enable-w32threads --enable-d3d11va --enable-dxva2 --disable-libvpx")
+ elseif(VCPKG_TARGET_IS_OSX)
+     string(APPEND OPTIONS " --target-os=darwin --enable-audiotoolbox --enable-videotoolbox")
++    # Do not pick up Homebrew X11 libraries (xcbgrab etc.); the app must run without Homebrew.
++    string(APPEND OPTIONS " --disable-xlib --disable-libxcb --disable-libxcb-shm --disable-libxcb-xfixes --disable-libxcb-shape --disable-sdl2")
+ elseif(VCPKG_TARGET_IS_IOS)
+     string(APPEND OPTIONS " --enable-videotoolbox")
+ elseif(VCPKG_CMAKE_SYSTEM_NAME STREQUAL "Android")

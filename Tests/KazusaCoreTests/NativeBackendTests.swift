@@ -11,10 +11,11 @@ import Testing
         Game(title: "t", directory: directory, executable: "", engine: engine, locale: locale, backend: backend)
     }
 
-    @Test func automaticPrefersNativeForNScripter() {
+    @Test func automaticPrefersNativeEngine() {
         #expect(game(.nscripter).resolvedBackend(nativeAvailable: true) == .native)
         #expect(game(.nscripter).resolvedBackend(nativeAvailable: false) == .wine)
-        #expect(game(.kirikiri).resolvedBackend(nativeAvailable: true) == .wine)
+        #expect(game(.kirikiri).resolvedBackend(nativeAvailable: true) == .native)
+        #expect(game(.bgi).resolvedBackend(nativeAvailable: true) == .wine)
         #expect(game(.nscripter, backend: .wine).resolvedBackend(nativeAvailable: true) == .wine)
         #expect(game(.nscripter, backend: .native).resolvedBackend(nativeAvailable: false) == .native)
     }

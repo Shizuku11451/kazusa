@@ -40,6 +40,13 @@ mkdir -p "$ONS"
 cp ThirdParty/onscripter-yuri/prebuilt/onsyuri ThirdParty/onscripter-yuri/COPYING ThirdParty/onscripter-yuri/README.md "$ONS/"
 cp -R ThirdParty/onscripter-yuri/licenses "$ONS/"
 
+# 原生运行 KiriKiri 游戏的 krkr2（MIT / 吉里吉里许可证，独立程序，只有 arm64），见 ThirdParty/krkr2。
+KR="$APP/Contents/Resources/krkr2"
+mkdir -p "$KR"
+cp -R ThirdParty/krkr2/prebuilt/krkr2.app "$KR/"
+cp ThirdParty/krkr2/COPYING ThirdParty/krkr2/README.md ThirdParty/krkr2/kazusa.patch "$KR/"
+cp -R ThirdParty/krkr2/licenses "$KR/"
+
 # 文本钩子：kazusa-hook32/64.exe（本项目，GPL-3.0）+ LunaHook（GPL-3.0），都是在 Wine 里运行的 Windows 程序。
 # 见 HookHost/ 和 ThirdParty/lunahook。
 HOOK="$APP/Contents/Resources/texthook"
@@ -83,5 +90,6 @@ fi
 IDENTITY="${IDENTITY:--}"
 # 内嵌的可执行文件要先单独签名，再签整个 .app。
 codesign --force --sign "$IDENTITY" --timestamp=none "$ONS/onsyuri"
+codesign --force --sign "$IDENTITY" --timestamp=none "$KR/krkr2.app"
 codesign --force --sign "$IDENTITY" --timestamp=none "$APP"
 echo "✅ ${APP}（签名：$([[ "$IDENTITY" == - ]] && echo ad-hoc || echo "$IDENTITY")）"

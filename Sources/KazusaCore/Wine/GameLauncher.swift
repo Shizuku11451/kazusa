@@ -85,7 +85,7 @@ public actor GameLauncher {
         sessions[game.id] = Session(process: process, wine: (runtime, env))
     }
 
-    /// 用打包的原生引擎（目前是 ONScripter）启动，不经过 Wine。
+    /// 用打包的原生引擎（ONScripter / krkr2）启动，不经过 Wine。
     public func launchNative(
         _ game: Game,
         binary: URL,
