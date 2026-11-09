@@ -11,23 +11,14 @@ public enum Keychain {
     /// 读过的 Key 留在内存里，一次运行只碰一次钥匙串。
     nonisolated(unsafe) private static var cache: [UUID: String] = [:]
     private static let lock = NSLock()
-    /// 钥匙串条目的访问权限记的是“创建它的那个程序的签名”。旧版本（ad-hoc 签名，每次构建签名都不同）
-    /// 存的 Key，新版本每次读都会弹窗要密码。读到之后用当前程序重新存一遍，权限就换成了现在的
-    /// 证书签名，以后重新构建也不会再问。
-    private static let resavedKey = "keychain.resaved.v1"
+    // 注意：钥匙串的“始终允许”按程序的 cdhash 记（分区列表），自签名的程序每次重新构建 cdhash 都会变，
+    // 所以每个新构建第一次读 Key 时会问一次密码。只有用 Apple 开发者证书（按 Team ID 记）才能避免。
 
     public static func apiKey(for providerID: UUID) -> String? {
         lock.lock(); defer { lock.unlock() }
         if let cached = cache[providerID] { return cached }
         guard let key = readKey(for: providerID) else { return nil }
         cache[providerID] = key
-        let defaults = UserDefaults.standard
-        var resaved = Set(defaults.stringArray(forKey: resavedKey) ?? [])
-        if Bundle.main.bundleIdentifier != nil, !resaved.contains(providerID.uuidString) {
-            guard store(key, for: providerID) else { return key }
-            resaved.insert(providerID.uuidString)
-            defaults.set(Array(resaved), forKey: resavedKey)
-        }
         return key
     }
 
@@ -51,18 +42,17 @@ public enum Keychain {
         store(key, for: providerID)
     }
 
-    @discardableResult
-    private static func store(_ key: String?, for providerID: UUID) -> Bool {
+    private static func store(_ key: String?, for providerID: UUID) {
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: providerID.uuidString,
         ]
         SecItemDelete(base as CFDictionary)
-        guard let key, !key.isEmpty else { return true }
+        guard let key, !key.isEmpty else { return }
         var add = base
         add[kSecValueData as String] = Data(key.utf8)
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+        SecItemAdd(add as CFDictionary, nil)
     }
 }
