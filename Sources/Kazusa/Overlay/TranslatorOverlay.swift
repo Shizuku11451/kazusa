@@ -40,6 +40,10 @@ final class OverlayState {
     var status: String = "把上方的框拖到游戏的文本框上，然后点“识别”。"
     var isWorking = false
     var showHistory = false
+    /// 字幕条下面是否显示原文（游戏画面里已经有原文，默认不显示）。
+    var showSource = UserDefaults.standard.bool(forKey: "overlay.subtitle.showSource") {
+        didSet { UserDefaults.standard.set(showSource, forKey: "overlay.subtitle.showSource") }
+    }
     /// 锁定后取景框不再接收鼠标，点击直接落到下面的游戏上。
     var isLocked = false
     /// 正在流式输出的一句（原文, 目前为止的译文）。
@@ -371,8 +375,7 @@ struct OverlayView: View {
     var body: some View {
         VStack(spacing: 0) {
             if subtitle {
-                translationBar
-                    .frame(maxHeight: .infinity)
+                SubtitleBar(controller: controller, state: state) { controls }
             } else {
                 CaptureFrame(controller: controller, locked: state.isLocked)
                 translationBar
@@ -405,42 +408,50 @@ struct OverlayView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
 
-            HStack(spacing: 10) {
-                Picker("", selection: Binding(get: { state.mode }, set: { controller.setMode($0) })) {
-                    ForEach(state.availableModes) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: state.hookGameID == nil ? 220 : 300)
-
-                if subtitle {
-                    threadMenu
-                } else {
-                    Button("识别") { controller.captureOnce() }
-                        .disabled(state.isWorking)
-                        .help("系统级快捷键 \(GlobalHotKeys.Combo.recognize.display)，游戏在前台也能用")
-                }
-                Toggle("历史", isOn: $state.showHistory)
-                    .toggleStyle(.button)
-                if !subtitle {
-                    Button { controller.toggleLock() } label: {
-                        Image(systemName: state.isLocked ? "lock.fill" : "lock.open")
-                    }
-                    .help("锁定后点击穿透到游戏（\(GlobalHotKeys.Combo.toggleLock.display)）")
-                }
-                if state.isWorking { ProgressView().controlSize(.small) }
-                if !state.status.isEmpty && !state.lines.isEmpty {
-                    Text(state.status).font(.caption).foregroundStyle(.red).lineLimit(1)
-                }
-                Spacer()
-                Text(state.gameTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                Button { controller.close() } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.borderless)
-            }
+            controls
         }
         .padding(12)
         .background(WindowDragArea())
         .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var controls: some View {
+        HStack(spacing: 10) {
+            Picker("", selection: Binding(get: { state.mode }, set: { controller.setMode($0) })) {
+                ForEach(state.availableModes) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: state.hookGameID == nil ? 220 : 300)
+
+            if subtitle {
+                threadMenu
+            } else {
+                Button("识别") { controller.captureOnce() }
+                    .disabled(state.isWorking)
+                    .help("系统级快捷键 \(GlobalHotKeys.Combo.recognize.display)，游戏在前台也能用")
+            }
+            if subtitle {
+                Toggle("原文", isOn: $state.showSource)
+                    .toggleStyle(.button)
+            }
+            Toggle("历史", isOn: $state.showHistory)
+                .toggleStyle(.button)
+            if !subtitle {
+                Button { controller.toggleLock() } label: {
+                    Image(systemName: state.isLocked ? "lock.fill" : "lock.open")
+                }
+                .help("锁定后点击穿透到游戏（\(GlobalHotKeys.Combo.toggleLock.display)）")
+            }
+            if state.isWorking { ProgressView().controlSize(.small) }
+            if !state.status.isEmpty && !state.lines.isEmpty {
+                Text(state.status).font(.caption).foregroundStyle(.red).lineLimit(1)
+            }
+            Spacer()
+            Text(state.gameTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Button { controller.close() } label: { Image(systemName: "xmark") }
+                .buttonStyle(.borderless)
+        }
     }
 
     /// 游戏里通常有好几路文本（对白、人名、菜单……），默认自动选字数最多的一路，也可以手动指定。
@@ -490,6 +501,85 @@ private struct LineView: View {
                 .font(large ? .callout : .caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
+        }
+    }
+}
+
+/// 文本钩子模式的字幕条：平时只有译文和文字后面一层半透明底，
+/// 鼠标移上去才显示背景和按钮（可以拖动、改大小、选文本来源）。
+private struct SubtitleBar<Controls: View>: View {
+    let controller: TranslatorOverlayController
+    @Bindable var state: OverlayState
+    @ViewBuilder let controls: () -> Controls
+    @State private var hovering = false
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            if hovering || state.showHistory {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(.ultraThinMaterial)
+                    .background(WindowDragArea())
+            }
+            if state.showHistory {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(state.lines.reversed()) { line in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(line.translation).font(.system(size: 15, weight: .medium))
+                                Text(line.source).font(.caption).foregroundStyle(.secondary)
+                            }
+                            .textSelection(.enabled)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                }
+                .padding(.top, 40)
+            } else {
+                caption
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
+            }
+            if hovering || state.showHistory {
+                controls()
+                    .padding(8)
+                    .transition(.opacity)
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { inside in withAnimation(.easeInOut(duration: 0.15)) { hovering = inside } }
+    }
+
+    @ViewBuilder private var caption: some View {
+        let shown: (source: String, translation: String)? =
+            state.pending.map { ($0.source, $0.translation.isEmpty ? "…" : $0.translation) }
+            ?? state.lines.last.map { ($0.source, $0.translation) }
+        if let shown {
+            VStack(spacing: 3) {
+                Text(shown.translation)
+                    .font(.system(size: 22, weight: .medium))
+                if state.showSource {
+                    Text(shown.source)
+                        .font(.system(size: 14))
+                        .opacity(0.75)
+                }
+            }
+            .multilineTextAlignment(.center)
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.9), radius: 2)
+            .textSelection(.enabled)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        } else {
+            // 还没有译文时也留一小块可见的底，鼠标移上去才能呼出按钮（全透明的地方点击会穿透到游戏）。
+            Text(hovering ? state.status : "字幕条")
+                .font(.callout)
+                .foregroundStyle(.white.opacity(0.8))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .background(.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
         }
     }
 }
