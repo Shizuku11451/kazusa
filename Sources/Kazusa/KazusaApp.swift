@@ -23,8 +23,9 @@ struct KazusaApp: App {
             CommandMenu("翻译") {
                 Button("打开翻译悬浮窗") { model.overlay.show(game: model.selectedGame) }
                     .keyboardShortcut("t", modifiers: [.command, .shift])
-                Button("识别并翻译") { model.overlay.captureOnce() }
-                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                // ⇧⌘R / ⇧⌘L 是系统级快捷键（GlobalHotKeys），游戏在前台也能用，这里不再重复绑定。
+                Button("识别并翻译（\(GlobalHotKeys.Combo.recognize.display)）") { model.overlay.captureOnce() }
+                Button("锁定 / 解锁悬浮窗（\(GlobalHotKeys.Combo.toggleLock.display)）") { model.overlay.toggleLock() }
             }
         }
 

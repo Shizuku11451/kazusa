@@ -1,0 +1,53 @@
+name: 游戏兼容性问题
+description: 某个游戏打不开、黑屏、乱码、没声音、崩溃……
+labels: [compat]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请不要上传游戏文件或游戏本体下载链接。截图请只截必要部分。
+  - type: input
+    id: game
+    attributes:
+      label: 游戏名
+      description: 原名 + 版本（如有），例如「サクラノ詩 Steam 版」
+    validations:
+      required: true
+  - type: dropdown
+    id: edition
+    attributes:
+      label: 版本类型
+      options: [汉化版（简体）, 汉化版（繁体）, 日文原版, 其他]
+    validations:
+      required: true
+  - type: input
+    id: engine
+    attributes:
+      label: 引擎
+      description: Kazusa 详情页里识别出的引擎（KiriKiri / BGI / Siglus / …），不知道可以留空
+  - type: input
+    id: patch
+    attributes:
+      label: 汉化补丁 / 来源
+      description: 汉化组名、补丁版本；是否是免安装版
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      description: 期望的效果和实际的效果
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: 环境
+      description: macOS 版本、芯片（M1/M2/…/Intel）、Wine 版本（设置 → 运行时 里能看到）
+      placeholder: macOS 27.2 / M3 / wine-staging 11.21
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: 日志
+      description: 详情页 → 打开日志，贴最后 100 行左右。也可以用 `swift run kazusa-cli run <游戏目录> --debug` 获取更详细的日志。
+      render: text

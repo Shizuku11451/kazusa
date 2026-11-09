@@ -43,6 +43,20 @@ public enum TranslationError: LocalizedError, Equatable {
 /// 可替换的 HTTP 层，方便测试。
 public protocol HTTPTransport: Sendable {
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse)
+    /// 按行读取响应体（用于 SSE 流式输出）。
+    func lines(_ request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, HTTPURLResponse)
+}
+
+extension HTTPTransport {
+    /// 默认实现：整体读完再按行切开。
+    public func lines(_ request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, HTTPURLResponse) {
+        let (data, response) = try await send(request)
+        let all = String(decoding: data, as: UTF8.self).components(separatedBy: "\n")
+        return (AsyncThrowingStream { continuation in
+            for line in all { continuation.yield(line) }
+            continuation.finish()
+        }, response)
+    }
 }
 
 public struct URLSessionTransport: HTTPTransport {
@@ -54,6 +68,25 @@ public struct URLSessionTransport: HTTPTransport {
             throw TranslationError.badResponse("非 HTTP 响应")
         }
         return (data, http)
+    }
+
+    public func lines(_ request: URLRequest) async throws -> (AsyncThrowingStream<String, Error>, HTTPURLResponse) {
+        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw TranslationError.badResponse("非 HTTP 响应")
+        }
+        let stream = AsyncThrowingStream<String, Error> { continuation in
+            let task = Task {
+                do {
+                    for try await line in bytes.lines { continuation.yield(line) }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+        return (stream, http)
     }
 }
 
@@ -78,6 +111,75 @@ public struct LLMTranslator: Sendable {
             throw TranslationError.http(status: response.statusCode, body: String(decoding: data, as: UTF8.self))
         }
         return try parse(data).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 流式翻译：每收到一段就用“目前为止的可见译文”回调一次，最后返回完整译文。
+    public func translateStreaming(
+        _ request: TranslationRequest,
+        onPartial: @escaping @Sendable (String) -> Void
+    ) async throws -> String {
+        let urlRequest = try makeURLRequest(request, stream: true)
+        let (lines, response) = try await transport.lines(urlRequest)
+        var accumulated = ""
+        var raw: [String] = []
+        var sawEvent = false
+
+        for try await line in lines {
+            guard (200..<300).contains(response.statusCode) else { raw.append(line); continue }
+            guard line.hasPrefix("data:") else { raw.append(line); continue }
+            let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+            if payload == "[DONE]" { break }
+            guard let data = payload.data(using: .utf8),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            sawEvent = true
+            if let delta = try streamDelta(json), !delta.isEmpty {
+                accumulated += delta
+                onPartial(Self.visibleText(accumulated))
+            }
+        }
+
+        guard (200..<300).contains(response.statusCode) else {
+            throw TranslationError.http(status: response.statusCode, body: raw.joined(separator: "\n"))
+        }
+        // 有的中转服务忽略 stream 参数，直接返回普通 JSON。
+        if !sawEvent {
+            return try parse(Data(raw.joined(separator: "\n").utf8)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let result = Self.stripReasoning(accumulated).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !result.isEmpty else { throw TranslationError.badResponse("流式响应里没有文本") }
+        return result
+    }
+
+    /// 从一条 SSE 事件里取出新增的文本。
+    func streamDelta(_ json: [String: Any]) throws -> String? {
+        switch provider.style {
+        case .openAICompatible:
+            if let error = json["error"] as? [String: Any] {
+                throw TranslationError.badResponse(error["message"] as? String ?? "\(error)")
+            }
+            let choices = json["choices"] as? [[String: Any]]
+            let delta = choices?.first?["delta"] as? [String: Any]
+            return delta?["content"] as? String
+
+        case .anthropic:
+            switch json["type"] as? String {
+            case "content_block_delta":
+                let delta = json["delta"] as? [String: Any]
+                return delta?["type"] as? String == "text_delta" ? delta?["text"] as? String : nil
+            case "message_delta":
+                let delta = json["delta"] as? [String: Any]
+                if delta?["stop_reason"] as? String == "refusal" {
+                    let details = delta?["stop_details"] as? [String: Any]
+                    throw TranslationError.refused(details?["explanation"] as? String ?? "未说明原因")
+                }
+                return nil
+            case "error":
+                let error = json["error"] as? [String: Any]
+                throw TranslationError.badResponse(error?["message"] as? String ?? "\(json)")
+            default:
+                return nil
+            }
+        }
     }
 
     // MARK: - Prompt
@@ -121,7 +223,7 @@ public struct LLMTranslator: Sendable {
         return url
     }
 
-    func makeURLRequest(_ request: TranslationRequest) throws -> URLRequest {
+    func makeURLRequest(_ request: TranslationRequest, stream: Bool = false) throws -> URLRequest {
         var urlRequest = URLRequest(url: try endpoint(), timeoutInterval: provider.timeoutSeconds)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -138,7 +240,7 @@ public struct LLMTranslator: Sendable {
                     ["role": "system", "content": systemPrompt()],
                     ["role": "user", "content": userMessage(request)],
                 ],
-                "stream": false,
+                "stream": stream,
             ]
             if let t = provider.temperature { b["temperature"] = t }
             body = b
@@ -147,7 +249,7 @@ public struct LLMTranslator: Sendable {
             guard !key.isEmpty else { throw TranslationError.missingAPIKey }
             urlRequest.setValue(key, forHTTPHeaderField: "x-api-key")
             urlRequest.setValue("2026-10-21", forHTTPHeaderField: "anthropic-version")
-            body = [
+            var b: [String: Any] = [
                 "model": provider.model,
                 "max_tokens": 4096,
                 "system": systemPrompt(),
@@ -155,6 +257,8 @@ public struct LLMTranslator: Sendable {
                 // 逐句翻译不需要深度思考，用低 effort 换取速度和成本。
                 "output_config": ["effort": "low"],
             ]
+            if stream { b["stream"] = true }
+            body = b
         }
         for (k, v) in provider.extraHeaders { urlRequest.setValue(v, forHTTPHeaderField: k) }
         urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
@@ -193,5 +297,11 @@ public struct LLMTranslator: Sendable {
     static func stripReasoning(_ s: String) -> String {
         guard let end = s.range(of: "</think>") else { return s }
         return String(s[end.upperBound...])
+    }
+
+    /// 流式输出过程中可以展示的部分：还在 <think> 里时什么都不显示。
+    static func visibleText(_ s: String) -> String {
+        if s.range(of: "</think>") == nil, s.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<think>") { return "" }
+        return stripReasoning(s).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

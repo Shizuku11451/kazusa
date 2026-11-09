@@ -148,3 +148,95 @@ func jsonBody(_ request: URLRequest) throws -> [String: Any] {
         #expect(stub.requests.count == 2)
     }
 }
+
+final class PartialRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _values: [String] = []
+    func add(_ s: String) { lock.withLock { _values.append(s) } }
+    var values: [String] { lock.withLock { _values } }
+}
+
+@Suite struct StreamingTests {
+    let openAI = LLMProviderConfig(name: "t", style: .openAICompatible, baseURL: "https://api.example.com/v1", model: "m")
+    let anthropic = LLMProviderConfig(name: "c", style: .anthropic, baseURL: "https://api.anthropic.com", model: "claude-opus-5-5")
+
+    @Test func openAIStream() async throws {
+        let body = """
+        data: {"choices":[{"delta":{"role":"assistant"}}]}
+
+        data: {"choices":[{"delta":{"content":"你"}}]}
+
+        data: {"choices":[{"delta":{"content":"好。"}}]}
+
+        data: [DONE]
+        """
+        let stub = StubTransport(body: body)
+        let t = LLMTranslator(provider: openAI, prompt: .init(), apiKey: "k", transport: stub)
+        let rec = PartialRecorder()
+        let out = try await t.translateStreaming(TranslationRequest(text: "こんにちは。")) { rec.add($0) }
+        #expect(out == "你好。")
+        #expect(rec.values == ["你", "你好。"])
+        let sent = try JSONSerialization.jsonObject(with: try #require(stub.requests.first?.httpBody)) as? [String: Any]
+        #expect(sent?["stream"] as? Bool == true)
+    }
+
+    @Test func anthropicStream() async throws {
+        let body = """
+        event: message_start
+        data: {"type":"message_start","message":{"content":[]}}
+
+        event: content_block_delta
+        data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"早上"}}
+
+        event: content_block_delta
+        data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"好"}}
+
+        event: message_delta
+        data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}
+
+        event: message_stop
+        data: {"type":"message_stop"}
+        """
+        let t = LLMTranslator(provider: anthropic, prompt: .init(), apiKey: "k", transport: StubTransport(body: body))
+        let rec = PartialRecorder()
+        let out = try await t.translateStreaming(TranslationRequest(text: "おはよう")) { rec.add($0) }
+        #expect(out == "早上好")
+        #expect(rec.values == ["早上", "早上好"])
+    }
+
+    @Test func anthropicStreamRefusal() async throws {
+        let body = #"data: {"type":"message_delta","delta":{"stop_reason":"refusal"}}"#
+        let t = LLMTranslator(provider: anthropic, prompt: .init(), apiKey: "k", transport: StubTransport(body: body))
+        await #expect(throws: TranslationError.self) {
+            _ = try await t.translateStreaming(TranslationRequest(text: "x")) { _ in }
+        }
+    }
+
+    @Test func hidesThinkingWhileStreaming() async throws {
+        let body = """
+        data: {"choices":[{"delta":{"content":"<think>嗯"}}]}
+        data: {"choices":[{"delta":{"content":"</think>译文"}}]}
+        data: [DONE]
+        """
+        let t = LLMTranslator(provider: openAI, prompt: .init(), apiKey: nil, transport: StubTransport(body: body))
+        let rec = PartialRecorder()
+        let out = try await t.translateStreaming(TranslationRequest(text: "x")) { rec.add($0) }
+        #expect(out == "译文")
+        #expect(rec.values == ["", "译文"])
+    }
+
+    @Test func fallsBackToPlainJSON() async throws {
+        let stub = StubTransport(body: #"{"choices":[{"message":{"content":"普通"}}]}"#)
+        let t = LLMTranslator(provider: openAI, prompt: .init(), apiKey: nil, transport: stub)
+        let out = try await t.translateStreaming(TranslationRequest(text: "x")) { _ in }
+        #expect(out == "普通")
+    }
+
+    @Test func httpErrorWhileStreaming() async throws {
+        let stub = StubTransport(status: 401, body: #"{"error":"bad key"}"#)
+        let t = LLMTranslator(provider: openAI, prompt: .init(), apiKey: nil, transport: stub)
+        await #expect(throws: TranslationError.self) {
+            _ = try await t.translateStreaming(TranslationRequest(text: "x")) { _ in }
+        }
+    }
+}

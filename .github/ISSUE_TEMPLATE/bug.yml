@@ -1,0 +1,28 @@
+name: Bug 报告
+description: 应用本身的问题（界面、翻译悬浮窗、设置等）
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 问题描述
+      description: 怎么复现、期望的效果、实际的效果
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: 环境
+      placeholder: macOS 27.2 / M3 / Kazusa commit abc1234
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: 翻译服务（翻译相关问题才需要）
+      description: 接口类型 + 模型名，例如「OpenAI 兼容 / deepseek-chat」。请勿粘贴 API Key。
+  - type: textarea
+    id: log
+    attributes:
+      label: 日志 / 截图
+      render: text

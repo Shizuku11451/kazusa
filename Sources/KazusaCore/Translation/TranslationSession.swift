@@ -30,7 +30,8 @@ public actor TranslationSession {
     public var lines: [Line] { history }
 
     /// 翻译一句。与上一句相同（OCR 反复识别到同一画面）时直接返回 nil。
-    public func submit(_ rawText: String) async throws -> Line? {
+    /// - Parameter onPartial: 传入时使用流式输出，回调参数是（原文, 目前为止的译文）。
+    public func submit(_ rawText: String, onPartial: (@Sendable (String, String) -> Void)? = nil) async throws -> Line? {
         let text = Self.normalize(rawText)
         guard !text.isEmpty else { return nil }
         if history.last?.source == text { return nil }
@@ -40,7 +41,12 @@ public actor TranslationSession {
             translation = cached
         } else {
             let context = history.map { (source: $0.source, translation: $0.translation) }
-            translation = try await translator.translate(TranslationRequest(text: text, context: context, glossary: glossary))
+            let request = TranslationRequest(text: text, context: context, glossary: glossary)
+            if let onPartial {
+                translation = try await translator.translateStreaming(request) { onPartial(text, $0) }
+            } else {
+                translation = try await translator.translate(request)
+            }
             cache[text] = translation
         }
 

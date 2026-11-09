@@ -37,6 +37,10 @@ final class OverlayState {
     var status: String = "把上方的框拖到游戏的文本框上，然后点“识别”。"
     var isWorking = false
     var showHistory = false
+    /// 锁定后取景框不再接收鼠标，点击直接落到下面的游戏上。
+    var isLocked = false
+    /// 正在流式输出的一句（原文, 目前为止的译文）。
+    var pending: (source: String, translation: String)?
 }
 
 /// 翻译悬浮窗：上半部分是透明的“取景框”（截图区域），下半部分显示译文。
@@ -52,6 +56,8 @@ final class TranslatorOverlayController {
 
     private var lastOCRText = ""
     private var lastClipboardChange = NSPasteboard.general.changeCount
+    /// 每次翻译递增；迟到的流式回调对不上就丢弃。
+    private var streamGeneration = 0
 
     init(model: AppModel) {
         self.model = model
@@ -64,8 +70,27 @@ final class TranslatorOverlayController {
             state.glossary = game.translation.glossary
         }
         rebuildSession()
-        if panel == nil { panel = makePanel() }
-        panel?.orderFrontRegardless()
+        let panel = self.panel ?? makePanel()
+        self.panel = panel
+        restoreFrame(of: panel, for: game)
+        panel.orderFrontRegardless()
+    }
+
+    /// 每个游戏的窗口位置 / 文本框位置都不一样：按游戏分别记住悬浮窗的位置和大小。
+    private func restoreFrame(of panel: NSPanel, for game: Game?) {
+        let name = "KazusaOverlay-\(game?.id.uuidString ?? "default")"
+        guard panel.frameAutosaveName != name else { return }
+        panel.setFrameAutosaveName("")
+        panel.setFrameUsingName(name)
+        panel.setFrameAutosaveName(name)
+    }
+
+    func toggleLock() {
+        if panel == nil { show(game: model.selectedGame) }
+        state.isLocked.toggle()
+        state.status = state.isLocked
+            ? "已锁定：点击会穿透到游戏。按 \(GlobalHotKeys.Combo.toggleLock.display) 解锁。"
+            : "已解锁：可以拖动取景框。"
     }
 
     func close() {
@@ -164,12 +189,25 @@ final class TranslatorOverlayController {
             return
         }
         state.isWorking = true
-        defer { state.isWorking = false }
+        streamGeneration += 1
+        let generation = streamGeneration
+        defer {
+            state.isWorking = false
+            state.pending = nil
+            streamGeneration += 1
+        }
         do {
-            if let line = try await session.submit(text) {
+            let line = try await session.submit(text) { [weak self] source, partial in
+                Task { @MainActor in
+                    guard let self, self.streamGeneration == generation else { return }
+                    // 主线程任务的执行顺序不保证与回调顺序一致：只接受更长的部分结果。
+                    if let current = self.state.pending, current.translation.count > partial.count { return }
+                    self.state.pending = (source, partial)
+                }
+            }
+            if line != nil {
                 state.lines = await session.lines
                 state.status = ""
-                _ = line
             }
         } catch {
             state.status = error.localizedDescription
@@ -219,7 +257,7 @@ struct OverlayView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            CaptureFrame(controller: controller)
+            CaptureFrame(controller: controller, locked: state.isLocked)
             translationBar
                 .frame(height: Self.barHeight)
         }
@@ -236,6 +274,9 @@ struct OverlayView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            } else if let pending = state.pending {
+                LineView(source: pending.source, translation: pending.translation.isEmpty ? "…" : pending.translation)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else if let line = state.lines.last {
                 LineView(line: line)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -255,8 +296,13 @@ struct OverlayView: View {
 
                 Button("识别") { controller.captureOnce() }
                     .disabled(state.isWorking)
+                    .help("系统级快捷键 \(GlobalHotKeys.Combo.recognize.display)，游戏在前台也能用")
                 Toggle("历史", isOn: $state.showHistory)
                     .toggleStyle(.button)
+                Button { controller.toggleLock() } label: {
+                    Image(systemName: state.isLocked ? "lock.fill" : "lock.open")
+                }
+                .help("锁定后点击穿透到游戏（\(GlobalHotKeys.Combo.toggleLock.display)）")
                 if state.isWorking { ProgressView().controlSize(.small) }
                 if !state.status.isEmpty && !state.lines.isEmpty {
                     Text(state.status).font(.caption).foregroundStyle(.red).lineLimit(1)
@@ -273,14 +319,24 @@ struct OverlayView: View {
 }
 
 private struct LineView: View {
-    let line: TranslationSession.Line
+    let source: String
+    let translation: String
+
+    init(line: TranslationSession.Line) {
+        self.init(source: line.source, translation: line.translation)
+    }
+
+    init(source: String, translation: String) {
+        self.source = source
+        self.translation = translation
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(line.translation)
+            Text(translation)
                 .font(.system(size: 17, weight: .medium))
                 .textSelection(.enabled)
-            Text(line.source)
+            Text(source)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
@@ -291,14 +347,17 @@ private struct LineView: View {
 /// 透明取景框：可以拖动窗口，同时把自己的 NSView 交给控制器换算截图区域。
 private struct CaptureFrame: NSViewRepresentable {
     let controller: TranslatorOverlayController
+    let locked: Bool
 
     func makeNSView(context: Context) -> CaptureFrameView {
         let view = CaptureFrameView()
+        view.locked = locked
         controller.captureView = view
         return view
     }
 
     func updateNSView(_ nsView: CaptureFrameView, context: Context) {
+        nsView.locked = locked
         controller.captureView = nsView
     }
 }
@@ -306,22 +365,36 @@ private struct CaptureFrame: NSViewRepresentable {
 final class CaptureFrameView: NSView {
     override var isFlipped: Bool { true }
 
-    override func draw(_ dirtyRect: NSRect) {
-        // 几乎透明的底色，保证鼠标事件落在这里（完全透明的像素会穿透到下层窗口）。
-        NSColor.black.withAlphaComponent(0.01).setFill()
-        bounds.fill()
+    var locked = false {
+        didSet { if locked != oldValue { needsDisplay = true } }
+    }
 
+    override func draw(_ dirtyRect: NSRect) {
+        // 未锁定时铺一层几乎透明的底色，保证鼠标事件落在这里；
+        // 锁定时不铺，完全透明的像素会让窗口服务器把点击直接交给下层的游戏窗口。
+        if !locked {
+            NSColor.black.withAlphaComponent(0.01).setFill()
+            bounds.fill()
+        }
+
+        let color = locked ? NSColor.systemPink.withAlphaComponent(0.35) : NSColor.systemPink
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), xRadius: 8, yRadius: 8)
-        path.lineWidth = 2
+        path.lineWidth = locked ? 1 : 2
         path.setLineDash([8, 5], count: 2, phase: 0)
-        NSColor.systemPink.setStroke()
+        color.setStroke()
         path.stroke()
 
-        let label = "取景框：拖动到游戏文本上（拖边缘可调整大小）" as NSString
-        label.draw(at: NSPoint(x: 12, y: 8), withAttributes: [
-            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-            .foregroundColor: NSColor.systemPink,
-        ])
+        if !locked {
+            let label = "取景框：拖动到游戏文本上（拖边缘可调整大小），锁定后点击穿透" as NSString
+            label.draw(at: NSPoint(x: 12, y: 8), withAttributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: color,
+            ])
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        locked ? nil : super.hitTest(point)
     }
 
     override func mouseDown(with event: NSEvent) {

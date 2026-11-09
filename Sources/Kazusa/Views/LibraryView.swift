@@ -19,7 +19,7 @@ struct LibraryView: View {
                 emptyState
             } else {
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 18) {
+                    LazyVGrid(columns: columns, alignment: .leading, spacing: 18) {
                         ForEach(model.games) { game in
                             GameCard(game: game,
                                      isSelected: game.id == model.selectedGameID,
@@ -129,12 +129,15 @@ struct GameCard: View {
 
             Text(game.title)
                 .font(.headline)
-                .lineLimit(2)
+                .lineLimit(1)
+                .help(game.title)
             HStack(spacing: 6) {
                 Badge(text: game.engine.displayName)
                 Badge(text: game.locale.displayName)
             }
         }
+        // 每张卡片高度一致，同一行顶端对齐。
+        .frame(maxHeight: .infinity, alignment: .top)
         .contentShape(Rectangle())
     }
 
@@ -154,6 +157,8 @@ struct Badge: View {
     var body: some View {
         Text(text)
             .font(.caption2)
+            .lineLimit(1)
+            .truncationMode(.tail)
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(.quaternary, in: Capsule())
     }

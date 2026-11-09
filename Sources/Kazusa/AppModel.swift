@@ -48,6 +48,12 @@ final class AppModel {
             report(error)
         }
         refreshRuntimes()
+        registerHotKeys()
+    }
+
+    private func registerHotKeys() {
+        GlobalHotKeys.shared.register(.recognize) { [weak self] in self?.overlay.captureOnce() }
+        GlobalHotKeys.shared.register(.toggleLock) { [weak self] in self?.overlay.toggleLock() }
     }
 
     // MARK: - 游戏库

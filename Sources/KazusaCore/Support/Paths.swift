@@ -11,7 +11,11 @@ public struct KazusaPaths: Sendable {
         self.root = root
     }
 
+    /// 默认在 ~/Library/Application Support/Kazusa；设置环境变量 KAZUSA_HOME 可换到别处（开发、截图用）。
     public static let `default`: KazusaPaths = {
+        if let home = ProcessInfo.processInfo.environment["KAZUSA_HOME"], !home.isEmpty {
+            return KazusaPaths(root: URL(fileURLWithPath: home, isDirectory: true))
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return KazusaPaths(root: base.appendingPathComponent("Kazusa", isDirectory: true))
     }()
