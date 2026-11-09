@@ -8,7 +8,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
     public var customWineBinary: String
     /// 选中的运行时（wine 路径）；为空时用发现到的第一个。
     public var selectedRuntimePath: String
-    /// Windows 中日文字体映射到的 macOS 字体。
+    /// Windows 中日文字体映射到的 macOS 字体名；为空时按游戏区域自动选择。
     public var cjkFont: String
 
     public var providers: [LLMProviderConfig]
@@ -18,7 +18,7 @@ public struct AppSettings: Codable, Hashable, Sendable {
     public init(
         customWineBinary: String = "",
         selectedRuntimePath: String = "",
-        cjkFont: String = FontSubstitutes.defaultTargetFont,
+        cjkFont: String = "",
         providers: [LLMProviderConfig] = [LLMProviderConfig.presets[0]],
         activeProviderID: UUID? = nil,
         prompt: TranslationPromptConfig = TranslationPromptConfig()

@@ -77,8 +77,8 @@ struct RuntimeSettingsView: View {
             }
 
             Section("字体") {
-                TextField("中日文字体替换为", text: $model.settings.cjkFont)
-                Text("Windows 游戏里的 MS Gothic、SimSun 等字体会被替换成这个 macOS 字体。修改后对新建的前缀生效。")
+                TextField("中日文字体替换为", text: $model.settings.cjkFont, prompt: Text("自动（日文 Hiragino Sans W3，中文 Hiragino Sans GB W3）"))
+                Text("Windows 游戏里的 MS Gothic、SimSun 等字体会被替换成这个 macOS 字体。留空则按游戏区域自动选择；每次启动游戏时生效。")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

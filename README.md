@@ -11,7 +11,7 @@
 |---|---|
 | 游戏库 | 拖入文件夹或 exe 即可导入。自动识别引擎（KiriKiri、NScripter、Ren'Py、Unity 等 15 种）和主程序，并按文件名判断是汉化版还是日文原版 |
 | 转区 | 每个游戏可选 简中 / 繁中 / 日文 区域，对应 `zh_CN` / `zh_TW` / `ja_JP` 的 locale，每种区域共用一个 Wine 前缀 |
-| 字体 | 自动把 MS Gothic、SimSun 等字体替换成 macOS 自带的中日文字体，解决方块字 |
+| 字体 | 按区域把 MS Gothic、SimSun 等替换成 macOS 自带字体（日文用ヒラギノ角ゴシック，中文用冬青黑体），并配置字体链接，菜单和对话框也不会出方块字 |
 | 运行时 | 自动发现 Wine（/Applications、Homebrew），也可以从 `.tar.xz` 导入到 Kazusa 自己的 Runtimes 目录 |
 | 翻译悬浮窗 | 半透明取景框盖在游戏文本框上，用 ScreenCaptureKit 截图、Vision 做 OCR，再交给 LLM 翻译。三种模式：手动（⇧⌘R）、自动（画面稳定后才翻译）、剪贴板 |
 | 自定义 LLM | 支持 OpenAI 兼容接口（DeepSeek、Ollama、LM Studio、各类中转）和 Anthropic 接口；会带上前文和每个游戏的术语表；API Key 存在钥匙串里 |
@@ -24,14 +24,14 @@
 swift run Kazusa            # 开发时直接运行
 scripts/build-app.sh        # 打包到 build/Kazusa.app
 scripts/test.sh             # 跑单元测试（会自动处理只装了 CLT 时的 Testing 框架路径）
+swift run kazusa-cli        # 开发用命令行：安装运行时、识别游戏、不开界面直接启动游戏
 ```
 
 ## 运行游戏前的准备
 
 1. **Rosetta 2**（Apple 芯片）：`softwareupdate --install-rosetta --agree-to-license`
-2. **Wine**：以下任选一种
-   - `brew install --cask wine-stable`
-   - 下载 Gcenx 的 macOS Wine 构建（`.tar.xz`），在 设置 → 运行环境 → 从压缩包安装
+2. **Wine**：从 [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds/releases) 下载 `wine-staging-*-osx64.tar.xz`，在 设置 → 运行环境 → 从压缩包安装（或 `swift run kazusa-cli install-runtime <压缩包>`）。
+   > Homebrew 的 `wine-stable` / `wine@staging` cask 因为过不了 Gatekeeper 检查，已在 2026-09-01 被禁用。
 3. 用 OCR 翻译时需要**屏幕录制权限**：系统设置 → 隐私与安全性 → 屏幕与系统录音
 
 ## 代码结构

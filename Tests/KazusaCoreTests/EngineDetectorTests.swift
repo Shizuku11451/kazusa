@@ -101,11 +101,23 @@ import Testing
         #expect(env["FOO"] == "1")
     }
 
-    @Test func fontRegistryContainsCJKFaces() {
-        let reg = FontSubstitutes.registryFile(targetFont: "Hiragino Sans GB")
-        #expect(reg.hasPrefix("Windows Registry Editor Version 5.00"))
-        #expect(reg.contains("\"ＭＳ ゴシック\"=\"Hiragino Sans GB\""))
-        #expect(reg.contains("\"宋体\"=\"Hiragino Sans GB\""))
+    @Test func fontRegistryPicksFaceByLocale() {
+        let ja = FontSubstitutes.registryFile(locale: .japanese)
+        #expect(ja.hasPrefix("Windows Registry Editor Version 5.00"))
+        #expect(ja.contains("\"ＭＳ ゴシック\"=\"Hiragino Sans W3\""))
+        #expect(ja.contains("FontLink\\SystemLink]"))
+        #expect(ja.contains("\"Tahoma\"=hex(7):"))
+
+        let zh = FontSubstitutes.registryFile(locale: .simplifiedChinese)
+        #expect(zh.contains("\"宋体\"=\"Hiragino Sans GB W3\""))
+        // 旧版本写错的默认值视为“自动”，用户自定义的字体名照用。
+        #expect(FontSubstitutes.targetFace(for: .simplifiedChinese, override: "Hiragino Sans GB") == "Hiragino Sans GB W3")
+        #expect(FontSubstitutes.targetFace(for: .japanese, override: "Osaka") == "Osaka")
+    }
+
+    @Test func multiStringEncoding() {
+        // "a" 0 "" 0 → 61 00 00 00 00 00
+        #expect(FontSubstitutes.multiString(["a"]) == "hex(7):61,00,00,00,00,00")
     }
 
     @Test func gameDefaultsFollowLocale() {
@@ -115,5 +127,16 @@ import Testing
         #expect(!zh.translation.enabled)
         #expect(ja.prefixName == "default-ja")
         #expect(zh.prefixName == "default-zhs")
+    }
+}
+
+@Suite struct LegacyTextTests {
+    @Test func decodesShiftJISOutput() {
+        let data = "現在のコード ページ: 932".data(using: .shiftJIS)!
+        #expect(LegacyText.decode(data) == "現在のコード ページ: 932")
+    }
+
+    @Test func prefersUTF8() {
+        #expect(LegacyText.decode(Data("冬馬かずさ".utf8)) == "冬馬かずさ")
     }
 }
