@@ -1,0 +1,146 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 Shizuku11451
+
+import KazusaCore
+import SwiftUI
+
+struct GameDetailView: View {
+    @Environment(AppModel.self) private var model
+    @Binding var game: Game
+
+    @State private var candidates: [String] = []
+    @State private var detection: EngineDetection?
+    @State private var argumentsText = ""
+    @State private var glossaryText = ""
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("标题", text: $game.title)
+                HStack {
+                    if model.runningGameIDs.contains(game.id) {
+                        Button("停止", role: .destructive) { model.stop(game) }
+                    } else {
+                        Button("启动") { model.launch(game) }
+                            .buttonStyle(.borderedProminent)
+                            .keyboardShortcut(.return, modifiers: .command)
+                    }
+                    Spacer()
+                    Text(playTime).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            Section("运行") {
+                Picker("主程序", selection: $game.executable) {
+                    ForEach(executableOptions, id: \.self) { Text($0).tag($0) }
+                }
+                Picker("区域（转区）", selection: localeBinding) {
+                    ForEach(GameLocale.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                }
+                TextField("Wine 前缀", text: $game.prefixName)
+                TextField("启动参数", text: $argumentsText)
+                    .onSubmit(commitArguments)
+                LabeledContent("引擎") {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Picker("", selection: $game.engine) {
+                            ForEach(EngineKind.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                        }
+                        .labelsHidden()
+                        if let detection, !detection.evidence.isEmpty {
+                            Text("依据：" + detection.evidence.prefix(3).joined(separator: "、"))
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                }
+            }
+
+            Section("翻译") {
+                Toggle("启动时打开翻译悬浮窗", isOn: $game.translation.enabled)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("术语表（每行一条：原文=译文）").font(.caption).foregroundStyle(.secondary)
+                    TextEditor(text: $glossaryText)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 90)
+                        .onChange(of: glossaryText) { commitGlossary() }
+                }
+            }
+
+            Section("文件") {
+                Button("在 Finder 中显示游戏") { NSWorkspace.shared.activateFileViewerSelecting([game.executableURL]) }
+                Button("打开日志") { open(model.logFile(for: game)) }
+                Button("打开 C 盘（前缀）") { open(model.prefixDriveC(for: game)) }
+                Text(game.directory.path).font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+
+            Section {
+                Button("从游戏库移除", role: .destructive) { model.remove(game) }
+            }
+        }
+        .formStyle(.grouped)
+        .task(id: game.id) { await reload() }
+    }
+
+    private var executableOptions: [String] {
+        candidates.contains(game.executable) ? candidates : [game.executable] + candidates
+    }
+
+    /// 改区域时，如果前缀还是默认的，就跟着换成对应区域的默认前缀。
+    private var localeBinding: Binding<GameLocale> {
+        Binding(
+            get: { game.locale },
+            set: { newValue in
+                if game.prefixName == game.locale.defaultPrefixName {
+                    game.prefixName = newValue.defaultPrefixName
+                }
+                game.locale = newValue
+            }
+        )
+    }
+
+    private var playTime: String {
+        let minutes = Int(game.totalPlaySeconds / 60)
+        let total = minutes < 60 ? "\(minutes) 分钟" : "\(minutes / 60) 小时 \(minutes % 60) 分"
+        guard let last = game.lastPlayedAt else { return "还没玩过" }
+        return "已玩 \(total) · 上次 \(last.formatted(.relative(presentation: .named)))"
+    }
+
+    private func reload() async {
+        argumentsText = game.arguments.joined(separator: " ")
+        glossaryText = game.translation.glossary
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: "\n")
+        let directory = game.directory
+        let title = game.title
+        let result = await Task.detached {
+            let paths = DirectoryScanner.relativePaths(in: directory, maxDepth: 3, maxEntries: 20_000)
+            return (GameInspector.rankExecutables(paths: paths, directoryName: title, directory: directory),
+                    EngineDetector.detect(relativePaths: paths))
+        }.value
+        candidates = result.0
+        detection = result.1
+    }
+
+    private func commitArguments() {
+        let args = argumentsText.split(separator: " ").map(String.init)
+        if args != game.arguments { game.arguments = args }
+    }
+
+    private func commitGlossary() {
+        var glossary: [String: String] = [:]
+        for line in glossaryText.split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            if parts.count == 2, !parts[0].isEmpty { glossary[parts[0]] = parts[1] }
+        }
+        if glossary != game.translation.glossary { game.translation.glossary = glossary }
+    }
+
+    private func open(_ url: URL) {
+        if FileManager.default.fileExists(atPath: url.path) {
+            NSWorkspace.shared.open(url)
+        } else {
+            model.alert = .init(title: "还不存在", message: "\(url.path)\n\n启动一次游戏后才会生成。")
+        }
+    }
+}

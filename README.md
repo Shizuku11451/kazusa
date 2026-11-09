@@ -1,0 +1,87 @@
+# Kazusa
+
+在 Mac 上玩 Windows galgame 的原生启动器：**汉化版开箱即玩**，**日文原版配 LLM 实时翻译**。
+
+- 纯 SwiftUI + Swift Package，没有用 CrossOver / Whisky 等现有前端；唯一的外部依赖是 Wine 本身（作为 Windows 兼容层）。
+- 运行时管理、前缀、转区、字体替换、启动、OCR 和翻译都是自己写的。
+
+## 功能（MVP）
+
+| 模块 | 说明 |
+|---|---|
+| 游戏库 | 拖入文件夹或 exe 即可导入。自动识别引擎（KiriKiri、NScripter、Ren'Py、Unity 等 15 种）和主程序，并按文件名判断是汉化版还是日文原版 |
+| 转区 | 每个游戏可选 简中 / 繁中 / 日文 区域，对应 `zh_CN` / `zh_TW` / `ja_JP` 的 locale，每种区域共用一个 Wine 前缀 |
+| 字体 | 自动把 MS Gothic、SimSun 等字体替换成 macOS 自带的中日文字体，解决方块字 |
+| 运行时 | 自动发现 Wine（/Applications、Homebrew），也可以从 `.tar.xz` 导入到 Kazusa 自己的 Runtimes 目录 |
+| 翻译悬浮窗 | 半透明取景框盖在游戏文本框上，用 ScreenCaptureKit 截图、Vision 做 OCR，再交给 LLM 翻译。三种模式：手动（⇧⌘R）、自动（画面稳定后才翻译）、剪贴板 |
+| 自定义 LLM | 支持 OpenAI 兼容接口（DeepSeek、Ollama、LM Studio、各类中转）和 Anthropic 接口；会带上前文和每个游戏的术语表；API Key 存在钥匙串里 |
+
+## 构建
+
+需要 macOS 14+ 和 Swift 6（装 Command Line Tools 就够，不需要 Xcode）。
+
+```bash
+swift run Kazusa            # 开发时直接运行
+scripts/build-app.sh        # 打包到 build/Kazusa.app
+scripts/test.sh             # 跑单元测试（会自动处理只装了 CLT 时的 Testing 框架路径）
+```
+
+## 运行游戏前的准备
+
+1. **Rosetta 2**（Apple 芯片）：`softwareupdate --install-rosetta --agree-to-license`
+2. **Wine**：以下任选一种
+   - `brew install --cask wine-stable`
+   - 下载 Gcenx 的 macOS Wine 构建（`.tar.xz`），在 设置 → 运行环境 → 从压缩包安装
+3. 用 OCR 翻译时需要**屏幕录制权限**：系统设置 → 隐私与安全性 → 屏幕与系统录音
+
+## 代码结构
+
+```
+Sources/
+  KazusaCore/              # 与 UI 无关的核心逻辑，全部有单元测试
+    Engine/                # 引擎识别、主程序打分、区域猜测
+    Wine/                  # 运行时发现与安装、前缀、环境变量、启动器
+    Translation/           # LLM 配置、请求构造与解析、翻译会话（去重、上文、缓存）
+    Models/ Library/ Settings/ Support/
+  Kazusa/                  # SwiftUI 应用
+    Views/                 # 游戏库、详情、设置
+    Overlay/               # 翻译悬浮窗（NSPanel）
+    Capture/               # ScreenCaptureKit 截图 + Vision OCR
+```
+
+数据存放在 `~/Library/Application Support/Kazusa/`，包括 `library.json`、`settings.json`、`Prefixes/`、`Runtimes/`、`Logs/`。
+
+## 路线图
+
+- [ ] **原生后端**：KiriKiri 走 krkrsdl2，NScripter 走 ONScripter，System4 走 xsystem4。这些游戏可以完全不用 Wine
+- [ ] **文本钩子**：自己实现 Textractor 式的 hook，直接从游戏进程里取文本，比 OCR 更准；剪贴板模式现在可以先搭配外部工具使用
+- [ ] 视频解码：给前缀装 LAV/quartz 一类的方案，解决 OP/ED 黑屏
+- [ ] 从 VNDB 拉取封面和元数据
+- [ ] 全局快捷键（游戏在前台时也能触发识别）、悬浮窗点击穿透
+- [ ] 每个游戏独立前缀、存档备份
+- [ ] 流式翻译输出、翻译结果持久化
+
+## 许可证
+
+Kazusa 以 [GNU 通用公共许可证 v3.0 或更高版本](LICENSE)（GPL-3.0-or-later）发布。
+
+Copyright (C) 2026 Shizuku11451
+
+你可以自由使用、修改和再分发本程序。但分发修改版或基于它的作品时，必须同样以 GPL-3.0 或更高版本公开源代码。
+
+### 第三方组件
+
+Kazusa **不打包、不链接**下列组件，只在运行时把它们作为独立程序调用，或使用系统自带的部分：
+
+| 组件 | 许可证 | 使用方式 |
+|---|---|---|
+| [Wine](https://www.winehq.org/) | LGPL-2.1-or-later | 用户自行安装，或从压缩包导入；作为子进程调用 |
+| Rosetta 2 | Apple 专有 | macOS 系统组件，由用户通过 `softwareupdate` 安装 |
+| SwiftUI / ScreenCaptureKit / Vision / Security | Apple SDK | 系统框架 |
+| 冬青黑体等系统字体 | Apple 专有 | 只在 Wine 注册表里引用字体名，不分发字体文件 |
+
+翻译功能会把识别到的文本发给**用户自己配置**的 LLM 服务，请遵守对应服务的使用条款。
+
+### 贡献
+
+提交代码即表示你同意以 GPL-3.0-or-later 授权你的贡献。请不要提交任何游戏文件、游戏截图或其他受版权保护的素材。
