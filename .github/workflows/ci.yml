@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          swift --version
+
+      - uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: scripts/test.sh
+
+      - name: Build app bundle
+        run: |
+          scripts/build-app.sh
+          ditto -c -k --keepParent build/Kazusa.app build/Kazusa.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kazusa-app
+          path: build/Kazusa.zip
+          retention-days: 7
