@@ -240,3 +240,57 @@ final class PartialRecorder: @unchecked Sendable {
         }
     }
 }
+
+@Suite struct TranslationStoreTests {
+    let provider = LLMProviderConfig(name: "t", style: .openAICompatible, baseURL: "http://localhost:1/v1", model: "m")
+
+    func tempStore() -> TranslationStore {
+        TranslationStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("kazusa-test-\(UUID().uuidString)/t.jsonl"))
+    }
+
+    func session(_ store: TranslationStore, _ stub: StubTransport, language: String = "简体中文") -> TranslationSession {
+        TranslationSession(translator: LLMTranslator(provider: provider, prompt: .init(targetLanguage: language), apiKey: nil, transport: stub),
+                           store: store)
+    }
+
+    @Test func translationsSurviveNewSession() async throws {
+        let store = tempStore()
+        defer { try? FileManager.default.removeItem(at: store.fileURL.deletingLastPathComponent()) }
+        let stub = StubTransport(body: #"{"choices":[{"message":{"content":"译"}}]}"#)
+
+        let first = session(store, stub)
+        _ = try await first.submit("A")
+        _ = try await first.submit("B")
+        #expect(stub.requests.count == 2)
+
+        let second = session(store, stub)
+        #expect(await second.lines.map(\.source) == ["A", "B"])
+        _ = try await second.submit("A")
+        #expect(stub.requests.count == 2) // 记录里有，不再请求
+
+        // 换了目标语言就不用这些记录。
+        let english = session(store, stub, language: "English")
+        #expect(await english.lines.isEmpty)
+        _ = try await english.submit("A")
+        #expect(stub.requests.count == 3)
+        #expect(store.load(language: "简体中文").count == 2)
+    }
+
+    @Test func clearAndCorruptLines() async throws {
+        let store = tempStore()
+        defer { try? FileManager.default.removeItem(at: store.fileURL.deletingLastPathComponent()) }
+        try store.append(.init(source: "A", translation: "甲", language: "zh"))
+        let handle = try FileHandle(forWritingTo: store.fileURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(#"{"s":"半"#.utf8)) // 写到一半
+        try handle.close()
+        #expect(store.load(language: "zh") == [.init(source: "A", translation: "甲", language: "zh")])
+
+        let stub = StubTransport(body: #"{"choices":[{"message":{"content":"译"}}]}"#)
+        let s = session(store, stub, language: "zh")
+        try await s.clear()
+        #expect(await s.lines.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: store.fileURL.path))
+    }
+}

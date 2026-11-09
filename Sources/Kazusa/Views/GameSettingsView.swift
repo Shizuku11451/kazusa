@@ -15,6 +15,8 @@ struct GameSettingsView: View {
     @State private var detection: EngineDetection?
     @State private var argumentsText = ""
     @State private var glossaryText = ""
+    @State private var translationCount = 0
+    @State private var confirmingClear = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -91,6 +93,15 @@ struct GameSettingsView: View {
                             .font(.system(.body, design: .monospaced))
                             .frame(minHeight: 110)
                     }
+                    LabeledContent {
+                        Button("清除…") { confirmingClear = true }
+                            .disabled(translationCount == 0)
+                    } label: {
+                        Text("翻译记录")
+                        Text(translationCount == 0
+                             ? "还没有。翻过的句子会记下来，再遇到时直接用，不再调用翻译服务。"
+                             : "已记下 \(translationCount) 句，再遇到时直接用。改了术语表想重新翻译时可以清除。")
+                    }
                 }
 
                 Section("位置") {
@@ -117,6 +128,14 @@ struct GameSettingsView: View {
             model.refreshNativeSupport(for: game)
         }
         .task(id: game.id) { await reload() }
+        .confirmationDialog("清除“\(game.title)”的翻译记录？", isPresented: $confirmingClear) {
+            Button("清除", role: .destructive) {
+                model.clearTranslations(for: game.id)
+                translationCount = 0
+            }
+        } message: {
+            Text("之后遇到同样的句子会重新调用翻译服务。")
+        }
     }
 
     private var isWine: Bool { model.backend(for: game) == .wine }
@@ -156,6 +175,9 @@ struct GameSettingsView: View {
             .joined(separator: "\n")
         let directory = game.directory
         let title = game.title
+        let store = model.paths.translationStore(for: game.id)
+        let language = model.settings.prompt.targetLanguage
+        translationCount = await Task.detached { Set(store.load(language: language).map(\.source)).count }.value
         let result = await Task.detached {
             let paths = DirectoryScanner.relativePaths(in: directory, maxDepth: 3, maxEntries: 20_000)
             return (GameInspector.rankExecutables(paths: paths, directoryName: title, directory: directory),

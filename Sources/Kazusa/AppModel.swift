@@ -176,6 +176,11 @@ final class AppModel {
         saveGames()
         covers.remove(for: game.id)
         coverImages[game.id] = nil
+        try? overlay.clearTranslations(for: game.id)
+    }
+
+    func clearTranslations(for id: UUID) {
+        do { try overlay.clearTranslations(for: id) } catch { report(error) }
     }
 
     // MARK: - 封面

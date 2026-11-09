@@ -3,7 +3,7 @@
 
 import Foundation
 
-/// 一次游玩过程中的翻译会话：去重、缓存、维护上文。
+/// 一个游戏的翻译会话：去重、缓存、维护上文。传入 store 时翻过的句子会存下来，下次直接用。
 public actor TranslationSession {
     public struct Line: Sendable, Identifiable, Equatable {
         public let id = UUID()
@@ -16,15 +16,39 @@ public actor TranslationSession {
     private var history: [Line] = []
     private var cache: [String: String] = [:]
     private let historyLimit = 200
+    private let store: TranslationStore?
+    /// 最近一次写记录失败的原因（磁盘满、没权限等）；不影响翻译本身。
+    public private(set) var storeError: String?
 
-    public init(translator: LLMTranslator, glossary: [String: String] = [:]) {
+    public init(translator: LLMTranslator, glossary: [String: String] = [:], store: TranslationStore? = nil) {
         self.translator = translator
         self.glossary = glossary
+        self.store = store
+        (history, cache) = Self.restore(from: store, language: translator.prompt.targetLanguage, historyLimit: historyLimit)
     }
 
     public func update(translator: LLMTranslator, glossary: [String: String]) {
+        let languageChanged = translator.prompt.targetLanguage != self.translator.prompt.targetLanguage
         self.translator = translator
         self.glossary = glossary
+        if languageChanged {
+            (history, cache) = Self.restore(from: store, language: translator.prompt.targetLanguage, historyLimit: historyLimit)
+        }
+    }
+
+    /// 清空记录（内存和文件）。之后同样的句子会重新调用 LLM 翻译。
+    public func clear() throws {
+        history = []
+        cache = [:]
+        try store?.clear()
+    }
+
+    private static func restore(from store: TranslationStore?, language: String, historyLimit: Int) -> ([Line], [String: String]) {
+        guard let records = store?.load(language: language) else { return ([], [:]) }
+        var cache: [String: String] = [:]
+        for r in records { cache[r.source] = r.translation }
+        let history = records.suffix(historyLimit).map { Line(source: $0.source, translation: $0.translation) }
+        return (history, cache)
     }
 
     public var lines: [Line] { history }
@@ -48,6 +72,12 @@ public actor TranslationSession {
                 translation = try await translator.translate(request)
             }
             cache[text] = translation
+            do {
+                try store?.append(.init(source: text, translation: translation, language: translator.prompt.targetLanguage))
+                storeError = nil
+            } catch {
+                storeError = error.localizedDescription
+            }
         }
 
         let line = Line(source: text, translation: translation)

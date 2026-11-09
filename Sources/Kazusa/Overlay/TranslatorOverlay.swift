@@ -70,6 +70,8 @@ final class TranslatorOverlayController {
     let state = OverlayState()
     private var panel: NSPanel?
     private var session: TranslationSession?
+    /// session 属于哪个游戏；换游戏时换一个 session（各自的翻译记录）。
+    private var sessionGameID: UUID?
     private var loopTask: Task<Void, Never>?
     /// 取景框对应的 NSView，用来换算屏幕坐标。
     weak var captureView: NSView?
@@ -146,12 +148,31 @@ final class TranslatorOverlayController {
             state.status = "还没有配置翻译服务：打开 设置 → 翻译。"
             return
         }
-        if let session {
+        if let session, sessionGameID == gameID {
             let glossary = state.glossary
-            Task { await session.update(translator: translator, glossary: glossary) }
+            Task {
+                await session.update(translator: translator, glossary: glossary)
+                // 改了目标语言时记录会换成对应语言的。
+                if self.session === session { state.lines = await session.lines }
+            }
         } else {
-            session = TranslationSession(translator: translator, glossary: state.glossary)
+            let store = gameID.map { model.paths.translationStore(for: $0) }
+            let session = TranslationSession(translator: translator, glossary: state.glossary, store: store)
+            self.session = session
+            sessionGameID = gameID
+            state.pending = nil
+            state.lines = []
+            Task { if self.session === session { state.lines = await session.lines } }
         }
+    }
+
+    /// 清空某个游戏的翻译记录。悬浮窗正开着这个游戏时连同显示的内容一起清掉。
+    func clearTranslations(for id: UUID) throws {
+        if let session, sessionGameID == id {
+            state.lines = []
+            Task { try? await session.clear() }
+        }
+        try model.paths.translationStore(for: id).clear()
     }
 
     // MARK: - 文本来源
@@ -215,7 +236,6 @@ final class TranslatorOverlayController {
         selector = HookThreadSelector()
         queuedText = nil
         state.hookGameID = game.id
-        state.lines = []
         syncThreads()
         show(game: game)
         setMode(.hook)
@@ -322,7 +342,7 @@ final class TranslatorOverlayController {
             }
             if line != nil {
                 state.lines = await session.lines
-                state.status = ""
+                state.status = await session.storeError.map { "翻译记录没能保存：\($0)" } ?? ""
             }
         } catch {
             state.status = error.localizedDescription

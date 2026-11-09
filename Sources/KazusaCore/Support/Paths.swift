@@ -29,6 +29,12 @@ public struct KazusaPaths: Sendable {
     public var fixesDir: URL { root.appendingPathComponent("Fixes", isDirectory: true) }
     /// 游戏封面缓存。
     public var coversDir: URL { root.appendingPathComponent("Covers", isDirectory: true) }
+    /// 每个游戏的翻译记录。
+    public var translationsDir: URL { root.appendingPathComponent("Translations", isDirectory: true) }
+
+    public func translationStore(for gameID: UUID) -> TranslationStore {
+        TranslationStore(fileURL: translationsDir.appendingPathComponent("\(gameID.uuidString).jsonl"))
+    }
 
     public func ensureDirectories() throws {
         for dir in [root, prefixesDir, runtimesDir, logsDir, coversDir] {
