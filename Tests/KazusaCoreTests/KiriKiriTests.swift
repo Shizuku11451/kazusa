@@ -29,7 +29,8 @@ enum XP3Builder {
         var a: UInt32 = 1, b: UInt32 = 0
         for byte in input { a = (a + UInt32(byte)) % 65521; b = (b + a) % 65521 }
         let adler = b << 16 | a
-        return [0x78, 0x9C] + output.prefix(n) + [24, 16, 8, 0].map { UInt8(truncatingIfNeeded: adler >> $0) }
+        let trailer: [UInt8] = [24, 16, 8, 0].map { UInt8(truncatingIfNeeded: adler >> $0) }
+        return [0x78, 0x9C] + Array(output.prefix(n)) + trailer
     }
 
     static func build(_ files: [File], compressIndex: Bool = true, version2: Bool = true) -> Data {
@@ -43,15 +44,27 @@ enum XP3Builder {
             let offset = UInt64(headerSize + body.count)
             body += stored
             let name = Array(file.name.utf16)
-            let info = le(0, 4) + le(UInt64(raw.count)) + le(UInt64(stored.count)) + le(UInt64(name.count), 2)
-                + name.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] }
-            let segm = le(file.compressed ? 1 : 0, 4) + le(offset) + le(UInt64(raw.count)) + le(UInt64(stored.count))
+            // 拆开写：一长串 + 在 CI 的编译器上会类型推导超时。
+            let nameBytes: [UInt8] = name.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] }
+            var info: [UInt8] = le(0, 4)
+            info += le(UInt64(raw.count))
+            info += le(UInt64(stored.count))
+            info += le(UInt64(name.count), 2)
+            info += nameBytes
+            var segm: [UInt8] = le(file.compressed ? 1 : 0, 4)
+            segm += le(offset)
+            segm += le(UInt64(raw.count))
+            segm += le(UInt64(stored.count))
             index += chunk("File", chunk("info", info) + chunk("segm", segm) + chunk("adlr", le(0, 4)))
         }
         let indexOffset = UInt64(headerSize + body.count)
         if version2 {
             // 版本 2：头后面先是一段空的、带“还有下一段”标记的索引，指向真正的索引。
-            out += le(0x17) + le(1, 4) + [0x80] + le(0) + le(indexOffset)
+            out += le(0x17)
+            out += le(1, 4)
+            out += [0x80]
+            out += le(0)
+            out += le(indexOffset)
         } else {
             out += le(indexOffset)
         }
