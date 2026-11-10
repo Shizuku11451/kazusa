@@ -14,6 +14,9 @@ for ARCH in arm64 x86_64; do
   swift build -c release --product Kazusa --triple $ARCH-apple-macosx14.0
   cp "$(swift build -c release --triple $ARCH-apple-macosx14.0 --show-bin-path)/Kazusa" "$TMP/Kazusa-$ARCH"
   [ "$(lipo -archs "$TMP/Kazusa-$ARCH")" = "$ARCH" ] || { echo "构建产物不是 $ARCH"; exit 1; }
+  # 新版 SwiftPM 把二进制里记的 SDK 版本写成了最低系统版本（14.0），macOS 就当它是老程序，
+  # 不给液态玻璃。改回真实的 SDK 版本。
+  vtool -set-build-version macos 14.0 "$(xcrun --show-sdk-version)" -replace -output "$TMP/Kazusa-$ARCH" "$TMP/Kazusa-$ARCH"
 done
 BIN="$TMP/Kazusa"
 lipo -create "$TMP/Kazusa-arm64" "$TMP/Kazusa-x86_64" -output "$BIN"
