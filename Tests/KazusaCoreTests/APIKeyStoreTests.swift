@@ -23,4 +23,16 @@ import Testing
         store.setAPIKey("", for: a)
         #expect(try JSONFile.read([String: String].self, from: store.fileURL) == [b.uuidString: "sk-b"])
     }
+
+    @Test func doesNotOverwriteUnreadableFile() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let store = APIKeyStore(fileURL: dir.appendingPathComponent("apikeys.json"))
+        let broken = #"{"a": "sk-a""#
+        try broken.write(to: store.fileURL, atomically: true, encoding: .utf8)
+
+        #expect(store.setAPIKey("sk-b", for: UUID()) == false)
+        #expect(try String(contentsOf: store.fileURL, encoding: .utf8) == broken)
+    }
 }

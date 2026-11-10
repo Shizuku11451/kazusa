@@ -21,24 +21,32 @@ public struct APIKeyStore: Sendable {
         return migrateFromKeychain(providerID)
     }
 
-    public func setAPIKey(_ key: String?, for providerID: UUID) {
-        var keys = all()
+    /// 返回是否写成功。
+    @discardableResult
+    public func setAPIKey(_ key: String?, for providerID: UUID) -> Bool {
+        if key?.isEmpty != false { deleteFromKeychain(providerID) }
+        // 文件读不出来（比如手改坏了）就别写：整份写回会把其他服务的 Key 冲掉。
+        guard var keys = try? JSONFile.read([String: String].self, from: fileURL) ?? [:] else { return false }
         keys[providerID.uuidString] = key?.isEmpty == false ? key : nil
-        write(keys)
+        return write(keys)
     }
 
     private func all() -> [String: String] {
         (try? JSONFile.read([String: String].self, from: fileURL)) ?? [:]
     }
 
-    private func write(_ keys: [String: String]) {
-        guard let data = try? JSONEncoder().encode(keys) else { return }
+    private func write(_ keys: [String: String]) -> Bool {
+        guard let data = try? JSONEncoder().encode(keys) else { return false }
         let dir = fileURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         // 先建一个 600 权限的临时文件再换过去，文件任何时候都不会是别人可读的。
         let tmp = dir.appendingPathComponent(".apikeys-\(UUID().uuidString)")
-        guard FileManager.default.createFile(atPath: tmp.path, contents: data, attributes: [.posixPermissions: 0o600]) else { return }
-        if rename(tmp.path, fileURL.path) != 0 { try? FileManager.default.removeItem(at: tmp) }
+        guard FileManager.default.createFile(atPath: tmp.path, contents: data, attributes: [.posixPermissions: 0o600]) else { return false }
+        guard rename(tmp.path, fileURL.path) == 0 else {
+            try? FileManager.default.removeItem(at: tmp)
+            return false
+        }
+        return true
     }
 
     // MARK: - 旧版本存在钥匙串里的 Key
@@ -48,22 +56,30 @@ public struct APIKeyStore: Sendable {
     nonisolated(unsafe) private static var triedKeychain: Set<UUID> = []
     private static let lock = NSLock()
 
+    private static func keychainQuery(_ id: UUID) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: id.uuidString,
+        ]
+    }
+
+    /// 删除不读内容，不会弹窗。
+    private func deleteFromKeychain(_ id: UUID) {
+        SecItemDelete(Self.keychainQuery(id) as CFDictionary)
+    }
+
     private func migrateFromKeychain(_ id: UUID) -> String? {
         Self.lock.lock(); defer { Self.lock.unlock() }
         guard Self.triedKeychain.insert(id).inserted else { return nil }
-        let base: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.keychainService,
-            kSecAttrAccount as String: id.uuidString,
-        ]
-        var query = base
+        var query = Self.keychainQuery(id)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var item: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
               let data = item as? Data, let key = String(data: data, encoding: .utf8), !key.isEmpty else { return nil }
-        setAPIKey(key, for: id)
-        SecItemDelete(base as CFDictionary)
+        // 写进文件成功了才删钥匙串里的，否则两边都没了。
+        if setAPIKey(key, for: id) { deleteFromKeychain(id) }
         return key
     }
 }
