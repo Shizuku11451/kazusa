@@ -7,21 +7,35 @@ import SwiftUI
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isDropTargeted = false
+    @Namespace private var coverNamespace
 
     private let columns = [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 18)]
 
     var body: some View {
         @Bindable var model = model
 
+        // 没用 navigationDestination：系统的跳转把详情页放在另一层，封面没法从卡片飞过去（macOS 也没有 .zoom 转场）。
         NavigationStack {
-            library
-                .navigationDestination(item: $model.openedGameID) { id in
-                    if let binding = model.binding(for: id) {
-                        GameDetailView(game: binding)
-                    }
+            ZStack {
+                // 游戏库一直留着，返回时滚动位置不变。
+                library
+                    .allowsHitTesting(openedGame == nil)
+                    .accessibilityHidden(openedGame != nil)
+                if let binding = openedGame {
+                    GameDetailView(game: binding)
+                        .background(Color(nsColor: .windowBackgroundColor))
+                        // 页面淡入淡出要比封面飞得快，否则飞行中的封面是半透明的。
+                        .transition(.opacity.animation(.easeOut(duration: 0.15)))
+                        .zIndex(1)
                 }
+            }
+            .navigationTitle(openedGame?.wrappedValue.title ?? "游戏库")
         }
+        // 减弱动态效果时只淡入淡出，封面不飞。
+        .environment(\.coverNamespace, reduceMotion ? nil : coverNamespace)
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(duration: 0.45, bounce: 0.12), value: model.openedGameID)
         .overlay(alignment: .bottom) {
             if let message = model.busyMessage {
                 HStack(spacing: 8) {
@@ -70,6 +84,8 @@ struct LibraryView: View {
         }
     }
 
+    private var openedGame: Binding<Game>? { model.openedGameID.flatMap { model.binding(for: $0) } }
+
     private var pendingRemoval: Game? { model.confirmingRemoval.flatMap { r in model.games.first { $0.id == r.id } } }
     private var pendingStop: Game? { model.confirmingStop.flatMap { r in model.games.first { $0.id == r.id } } }
 
@@ -89,6 +105,7 @@ struct LibraryView: View {
                                      cover: model.coverImages[game.id],
                                      isSelected: game.id == model.selectedGameID,
                                      isRunning: model.runningGameIDs.contains(game.id),
+                                     isOpened: game.id == model.openedGameID,
                                      onLaunch: { model.launch(game) })
                                 .activatable(game.title) { model.open(game.id) }
                                 .contextMenu {
@@ -121,17 +138,18 @@ struct LibraryView: View {
                     .padding(8)
             }
         }
-        .navigationTitle("游戏库")
         .toolbar {
-            ToolbarItemGroup {
-                Button { model.presentImportPanel() } label: { Label("添加游戏", systemImage: "plus") }
-                    .help("添加游戏文件夹或 .exe（⌘O）")
-                Button { model.overlay.show(game: model.selectedGame) } label: {
-                    Label("翻译悬浮窗", systemImage: "character.bubble")
+            if model.openedGameID == nil {
+                ToolbarItemGroup {
+                    Button { model.presentImportPanel() } label: { Label("添加游戏", systemImage: "plus") }
+                        .help("添加游戏文件夹或 .exe（⌘O）")
+                    Button { model.overlay.show(game: model.selectedGame) } label: {
+                        Label("翻译悬浮窗", systemImage: "character.bubble")
+                    }
+                    .help("打开翻译悬浮窗（⇧⌘T）")
+                    Button { openSettings() } label: { Label("设置", systemImage: "gearshape") }
+                        .help("运行环境、翻译服务（LLM）等全局设置")
                 }
-                .help("打开翻译悬浮窗（⇧⌘T）")
-                Button { openSettings() } label: { Label("设置", systemImage: "gearshape") }
-                    .help("运行环境、翻译服务（LLM）等全局设置")
             }
         }
     }
@@ -153,6 +171,8 @@ struct GameCard: View {
     let cover: NSImage?
     let isSelected: Bool
     let isRunning: Bool
+    /// 详情页打开着：封面在详情页上，卡片这里先藏起来。
+    var isOpened = false
     let onLaunch: () -> Void
 
     @State private var isHovered = false
@@ -177,6 +197,10 @@ struct GameCard: View {
                         }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 10))
+                    // 显隐不做动画：返回时卡片封面立刻露出、从详情页的位置飞回来，不会变成淡入淡出。
+                    .opacity(isOpened ? 0 : 1)
+                    .animation(nil, value: isOpened)
+                    .coverHero(game.id, isSource: !isOpened)
                     .overlay {
                         // 悬停时显示快速启动按钮，点卡片其他地方打开详情页。
                         if isHovered && !isRunning {
@@ -241,7 +265,31 @@ struct Badge: View {
     }
 }
 
+extension EnvironmentValues {
+    /// 游戏库卡片和详情页的封面共用这个命名空间，打开详情页时封面从卡片飞过去。nil 表示不飞。
+    @Entry var coverNamespace: Namespace.ID?
+}
+
+/// 读环境里的命名空间，这样不用一层层传下去。
+private struct CoverHero: ViewModifier {
+    @Environment(\.coverNamespace) private var namespace
+    let id: UUID
+    let isSource: Bool
+
+    func body(content: Content) -> some View {
+        if let namespace {
+            content.matchedGeometryEffect(id: id, in: namespace, isSource: isSource)
+        } else {
+            content
+        }
+    }
+}
+
 extension View {
+    func coverHero(_ id: UUID, isSource: Bool = true) -> some View {
+        modifier(CoverHero(id: id, isSource: isSource))
+    }
+
     /// 点一下，或键盘聚焦后按 Return / 空格执行，VoiceOver 当按钮读。
     /// 卡片里还套着别的按钮（快速启动、显示成人封面），所以没直接用 Button。
     func activatable(_ label: String, action: @escaping () -> Void) -> some View {

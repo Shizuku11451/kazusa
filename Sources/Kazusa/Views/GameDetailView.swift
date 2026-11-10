@@ -32,9 +32,20 @@ struct GameDetailView: View {
             }
         }
         .ignoresSafeArea(edges: .top)
-        .navigationTitle(game.title)
         .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button { model.openedGameID = nil } label: { Label("返回", systemImage: "chevron.left") }
+                    .keyboardShortcut("[", modifiers: .command)
+                    .help("返回游戏库（⌘[）")
+            }
             ToolbarItem { moreMenu }
+        }
+        // Esc 也能返回。用快捷键而不是 onExitCommand：后者要焦点在页面里，刚点完卡片时焦点常常不在。
+        .background {
+            Button("返回") { model.openedGameID = nil }
+                .keyboardShortcut(.cancelAction)
+                .opacity(0)
+                .accessibilityHidden(true)
         }
         .task(id: game.id) {
             isSynopsisExpanded = false
@@ -112,7 +123,8 @@ struct GameDetailView: View {
 
     /// 封面：可以把图片拖上来替换。
     private var coverView: some View {
-        Group {
+        // Color.clear 定出大小，图片填满后才能被圆角正确裁掉。
+        Color.clear.overlay {
             if let cover {
                 Image(nsImage: cover).resizable().scaledToFill()
             } else {
@@ -124,8 +136,10 @@ struct GameDetailView: View {
                     }
             }
         }
-        .frame(width: 180, height: 240)
+        // 先裁圆角再匹配，飞行途中圆角跟着走；固定尺寸放在后面，飞行时才能缩放。
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .coverHero(game.id)
+        .frame(width: 180, height: 240)
         .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
         .overlay {
             if isCoverDropTargeted {
