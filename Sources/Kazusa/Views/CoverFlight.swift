@@ -118,8 +118,10 @@ struct CoverFlightLayer: View {
             .allowsHitTesting(false)
             .accessibilityHidden(true)
             .transition(.identity)
-            .id(f.token)
+            // onAppear 要放在 id 前面：每次换新的飞行都会重新触发。放在后面只在第一次出现时触发，
+            // 连点时新的飞行永远不起飞，封面就卡在半路。
             .onAppear { flight.layerAppeared(f.token) }
+            .id(f.token)
         }
     }
 }
