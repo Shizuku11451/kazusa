@@ -8,10 +8,15 @@ VERSION="0.1.0"
 
 # 通用二进制（Apple 芯片 + Intel）。只装了 Command Line Tools 时 `--arch a --arch b` 需要 Xcode，
 # 所以分别构建两个架构再用 lipo 合并。
-swift build -c release --product Kazusa --triple arm64-apple-macosx14.0
-swift build -c release --product Kazusa --triple x86_64-apple-macosx14.0
-BIN="$(mktemp -d)/Kazusa"
-lipo -create .build/arm64-apple-macosx/release/Kazusa .build/x86_64-apple-macosx/release/Kazusa -output "$BIN"
+# 新版 SwiftPM 两个架构输出到同一个目录，所以每构建完一个就立刻拷走。
+TMP="$(mktemp -d)"
+for ARCH in arm64 x86_64; do
+  swift build -c release --product Kazusa --triple $ARCH-apple-macosx14.0
+  cp "$(swift build -c release --triple $ARCH-apple-macosx14.0 --show-bin-path)/Kazusa" "$TMP/Kazusa-$ARCH"
+  [ "$(lipo -archs "$TMP/Kazusa-$ARCH")" = "$ARCH" ] || { echo "构建产物不是 $ARCH"; exit 1; }
+done
+BIN="$TMP/Kazusa"
+lipo -create "$TMP/Kazusa-arm64" "$TMP/Kazusa-x86_64" -output "$BIN"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
