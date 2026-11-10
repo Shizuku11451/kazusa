@@ -9,7 +9,7 @@ struct LibraryView: View {
     @Environment(\.openSettings) private var openSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isDropTargeted = false
-    @Namespace private var coverNamespace
+    @State private var coverFlight = CoverFlight()
 
     private let columns = [GridItem(.adaptive(minimum: 170, maximum: 220), spacing: 18)]
 
@@ -26,16 +26,26 @@ struct LibraryView: View {
                 if let binding = openedGame {
                     GameDetailView(game: binding)
                         .background(Color(nsColor: .windowBackgroundColor))
-                        // 页面淡入淡出要比封面飞得快，否则飞行中的封面是半透明的。
+                        // 封面由最上层的飞行层负责，页面本身只需快速淡入淡出。
                         .transition(.opacity.animation(.easeOut(duration: 0.15)))
                         .zIndex(1)
+                }
+            }
+            .coordinateSpace(.named(CoverFlight.space))
+            .overlay(alignment: .topLeading) {
+                CoverFlightLayer(flight: coverFlight) { id in
+                    model.games.first { $0.id == id }.map { ($0.title, model.coverImages[id]) }
                 }
             }
             .navigationTitle(openedGame?.wrappedValue.title ?? "游戏库")
         }
         // 减弱动态效果时只淡入淡出，封面不飞。
-        .environment(\.coverNamespace, reduceMotion ? nil : coverNamespace)
-        .animation(reduceMotion ? .easeInOut(duration: 0.2) : .spring(duration: 0.45, bounce: 0.12), value: model.openedGameID)
+        .environment(\.coverFlight, reduceMotion ? nil : coverFlight)
+        .onChange(of: model.openedGameID) { old, new in
+            guard !reduceMotion else { return }
+            if let new { coverFlight.open(new) } else if let old { coverFlight.close(old) }
+        }
+        .animation(reduceMotion ? .easeInOut(duration: 0.2) : CoverFlight.animation, value: model.openedGameID)
         .overlay(alignment: .bottom) {
             if let message = model.busyMessage {
                 HStack(spacing: 8) {
@@ -177,6 +187,9 @@ struct GameCard: View {
 
     @State private var isHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.coverFlight) private var coverFlight
+
+    private var isCoverAway: Bool { isOpened || coverFlight?.isFlying(game.id) == true }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -197,10 +210,10 @@ struct GameCard: View {
                         }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 10))
-                    // 显隐不做动画：返回时卡片封面立刻露出、从详情页的位置飞回来，不会变成淡入淡出。
-                    .opacity(isOpened ? 0 : 1)
-                    .animation(nil, value: isOpened)
-                    .coverHero(game.id, isSource: !isOpened)
+                    .reportsCoverFrame { coverFlight?.card(game.id, movedTo: $0) }
+                    // 封面在详情页上或正在飞时先藏起来；显隐不做动画，免得和飞着的那张叠出重影。
+                    .opacity(isCoverAway ? 0 : 1)
+                    .animation(nil, value: isCoverAway)
                     .overlay {
                         // 悬停时显示快速启动按钮，点卡片其他地方打开详情页。
                         if isHovered && !isRunning {
@@ -265,31 +278,7 @@ struct Badge: View {
     }
 }
 
-extension EnvironmentValues {
-    /// 游戏库卡片和详情页的封面共用这个命名空间，打开详情页时封面从卡片飞过去。nil 表示不飞。
-    @Entry var coverNamespace: Namespace.ID?
-}
-
-/// 读环境里的命名空间，这样不用一层层传下去。
-private struct CoverHero: ViewModifier {
-    @Environment(\.coverNamespace) private var namespace
-    let id: UUID
-    let isSource: Bool
-
-    func body(content: Content) -> some View {
-        if let namespace {
-            content.matchedGeometryEffect(id: id, in: namespace, isSource: isSource)
-        } else {
-            content
-        }
-    }
-}
-
 extension View {
-    func coverHero(_ id: UUID, isSource: Bool = true) -> some View {
-        modifier(CoverHero(id: id, isSource: isSource))
-    }
-
     /// 点一下，或键盘聚焦后按 Return / 空格执行，VoiceOver 当按钮读。
     /// 卡片里还套着别的按钮（快速启动、显示成人封面），所以没直接用 Button。
     func activatable(_ label: String, action: @escaping () -> Void) -> some View {

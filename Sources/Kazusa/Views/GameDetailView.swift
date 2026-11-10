@@ -7,6 +7,7 @@ import SwiftUI
 /// 游戏详情页：大封面、资料、启动按钮和简介。运行和翻译的设置放在“设置”弹窗里。
 struct GameDetailView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.coverFlight) private var coverFlight
     @Binding var game: Game
 
     @State private var isCoverDropTargeted = false
@@ -136,11 +137,12 @@ struct GameDetailView: View {
                     }
             }
         }
-        // 先裁圆角再匹配，飞行途中圆角跟着走；固定尺寸放在后面，飞行时才能缩放。
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .coverHero(game.id)
         .frame(width: 180, height: 240)
+        .clipShape(RoundedRectangle(cornerRadius: CoverFlight.detailRadius))
         .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+        .reportsCoverFrame { coverFlight?.detail(game.id, movedTo: $0) }
+        // 飞着的那张落地前先藏起来。
+        .opacity(coverFlight?.isFlying(game.id) == true ? 0 : 1)
         .overlay {
             if isCoverDropTargeted {
                 RoundedRectangle(cornerRadius: 12).stroke(Color.accentColor, lineWidth: 3)
