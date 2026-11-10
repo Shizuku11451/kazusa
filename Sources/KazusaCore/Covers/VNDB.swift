@@ -106,8 +106,8 @@ public enum VNDB {
         }
     }
 
-    static func post(_ body: Data, session: URLSession) async throws -> Data {
-        var request = URLRequest(url: endpoint, timeoutInterval: 20)
+    static func post(_ body: Data, to url: URL = endpoint, session: URLSession) async throws -> Data {
+        var request = URLRequest(url: url, timeoutInterval: 20)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Kazusa (https://github.com/Shizuku11451/kazusa)", forHTTPHeaderField: "User-Agent")

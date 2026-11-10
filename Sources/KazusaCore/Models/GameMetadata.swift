@@ -22,11 +22,45 @@ public struct GameMetadata: Codable, Hashable, Sendable {
     public var synopsis: String?
     /// 用 LLM 翻译过的简介。只对应当前的 `synopsis`，原文变了就作废。
     public var synopsisTranslation: String?
+    /// 不含剧透和成人内容的标签，按相关度排好。nil = 旧版本存的资料，还没拉过。
+    public var tags: [String]?
+    /// 不含成人和血腥内容的截图。nil 同上。
+    public var screenshots: [Screenshot]?
+    /// 主角和主要角色，不含剧透角色。nil 同上。
+    public var characters: [Character]?
     public var fetchedAt: Date
+
+    public struct Screenshot: Codable, Hashable, Sendable, Identifiable {
+        public var url: URL
+        public var thumbnail: URL
+        public var id: URL { url }
+        public init(url: URL, thumbnail: URL) {
+            self.url = url
+            self.thumbnail = thumbnail
+        }
+    }
+
+    public struct Character: Codable, Hashable, Sendable, Identifiable {
+        public var id: String
+        public var name: String
+        /// 原文名，例如“冬馬かずさ”。
+        public var original: String?
+        /// 只有安全的图才记下。
+        public var imageURL: URL?
+        public var isProtagonist: Bool
+        public init(id: String, name: String, original: String? = nil, imageURL: URL? = nil, isProtagonist: Bool = false) {
+            self.id = id
+            self.name = name
+            self.original = original
+            self.imageURL = imageURL
+            self.isProtagonist = isProtagonist
+        }
+    }
 
     public init(vndbID: String, originalTitle: String? = nil, chineseTitle: String? = nil, developers: [String] = [],
                 released: String? = nil, lengthMinutes: Int? = nil, rating: Double? = nil, synopsis: String? = nil,
-                synopsisTranslation: String? = nil, fetchedAt: Date = Date()) {
+                synopsisTranslation: String? = nil, tags: [String]? = nil, screenshots: [Screenshot]? = nil,
+                characters: [Character]? = nil, fetchedAt: Date = Date()) {
         self.vndbID = vndbID
         self.originalTitle = originalTitle
         self.chineseTitle = chineseTitle
@@ -36,6 +70,9 @@ public struct GameMetadata: Codable, Hashable, Sendable {
         self.rating = rating
         self.synopsis = synopsis
         self.synopsisTranslation = synopsisTranslation
+        self.tags = tags
+        self.screenshots = screenshots
+        self.characters = characters
         self.fetchedAt = fetchedAt
     }
 

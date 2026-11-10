@@ -95,8 +95,8 @@ final class AppModel {
             for game in games where coverImages[game.id] == nil {
                 autoFetchCover(for: game.id)
             }
-            // 旧版本只记了 vndbID，没有资料，补拉一次。
-            for game in games where game.vndbID != nil && game.metadata == nil && coverImages[game.id] != nil {
+            // 旧版本没有资料，或者资料里还没有截图 / 角色，补拉一次。
+            for game in games where game.vndbID != nil && game.metadata?.characters == nil && coverImages[game.id] != nil {
                 fetchMetadata(for: game.id)
             }
         }

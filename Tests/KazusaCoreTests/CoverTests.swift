@@ -118,6 +118,39 @@ import Testing
         #expect(try VNDB.parseDetails(Data(#"{"more":false,"results":[]}"#.utf8)) == nil)
     }
 
+    @Test func filtersTagsAndScreenshots() throws {
+        let json = #"""
+        {"results":[{"id":"v1","title":"T","tags":[
+          {"name":"Low","rating":1.6,"spoiler":0,"category":"cont"},
+          {"name":"Drama","rating":2.8,"spoiler":0,"category":"cont"},
+          {"name":"Twist","rating":3.0,"spoiler":2,"category":"cont"},
+          {"name":"Sex","rating":3.0,"spoiler":0,"category":"ero"},
+          {"name":"Weak","rating":0.5,"spoiler":0,"category":"cont"}],
+         "screenshots":[
+          {"url":"https://t.vndb.org/sf/1.jpg","thumbnail":"https://t.vndb.org/sf.t/1.jpg","sexual":0,"violence":0},
+          {"url":"https://t.vndb.org/sf/2.jpg","thumbnail":"https://t.vndb.org/sf.t/2.jpg","sexual":1.5,"violence":0}]}]}
+        """#
+        let m = try #require(try VNDB.parseDetails(Data(json.utf8)))
+        #expect(m.tags == ["Drama", "Low"])
+        #expect(m.screenshots?.map(\.url.lastPathComponent) == ["1.jpg"])
+    }
+
+    @Test func picksMainCharactersWithoutSpoilers() throws {
+        let json = #"""
+        {"results":[
+          {"id":"c3","name":"Side","original":null,"image":null,"vns":[{"id":"v1","role":"side","spoiler":0}]},
+          {"id":"c2","name":"Heroine","original":"ヒロイン","image":{"url":"https://t.vndb.org/ch/2.jpg","sexual":1.2,"violence":0},
+           "vns":[{"id":"v1","role":"primary","spoiler":0}]},
+          {"id":"c4","name":"Secret","original":null,"image":null,"vns":[{"id":"v1","role":"primary","spoiler":2}]},
+          {"id":"c1","name":"Hero","original":null,"image":{"url":"https://t.vndb.org/ch/1.jpg","sexual":0,"violence":0},
+           "vns":[{"id":"v9","role":"side","spoiler":0},{"id":"v1","role":"main","spoiler":0}]}]}
+        """#
+        let chars = try VNDB.parseCharacters(Data(json.utf8), vnID: "v1")
+        #expect(chars.map(\.id) == ["c1", "c2"])
+        #expect(chars[0].isProtagonist && chars[0].imageURL != nil)
+        #expect(chars[1].imageURL == nil) // 擦边图不留
+    }
+
     @Test func formatsPartialDates() {
         #expect(GameMetadata(vndbID: "v1", released: "2010-03").releasedText == "2010年3月")
         #expect(GameMetadata(vndbID: "v1", released: "2010").releasedText == "2010年")

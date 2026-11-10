@@ -14,6 +14,7 @@ struct GameDetailView: View {
     @State private var restoreCandidate: SaveBackups.Backup?
     @State private var isSynopsisExpanded = false
     @State private var showsOriginalSynopsis = false
+    @State private var viewingScreenshot: GameMetadata.Screenshot?
 
     private var cover: NSImage? { model.coverImages[game.id] }
     private var isRunning: Bool { model.runningGameIDs.contains(game.id) }
@@ -25,7 +26,10 @@ struct GameDetailView: View {
                 hero
                 VStack(alignment: .leading, spacing: 28) {
                     stats
+                    savesSection
                     aboutSection
+                    screenshotsSection
+                    charactersSection
                 }
                 .padding(.horizontal, 32)
                 .padding(.vertical, 24)
@@ -52,6 +56,18 @@ struct GameDetailView: View {
             isSynopsisExpanded = false
             showsOriginalSynopsis = false
         }
+        .sheet(item: $viewingScreenshot) { shot in
+            ScreenshotViewer(screenshots: game.metadata?.screenshots ?? [shot], current: shot)
+        }
+        .confirmationDialog(
+            "用 \(restoreCandidate?.date.formatted(date: .abbreviated, time: .shortened) ?? "") 的备份替换现在的存档？",
+            isPresented: Binding(get: { restoreCandidate != nil }, set: { if !$0 { restoreCandidate = nil } }),
+            presenting: restoreCandidate
+        ) { backup in
+            Button("恢复", role: .destructive) { model.restoreSaves(backup, for: game) }
+        } message: { _ in
+            Text("现在的存档会先自动备份一份（标着“恢复前”）。")
+        }
     }
 
     // MARK: - 顶部
@@ -71,7 +87,8 @@ struct GameDetailView: View {
                     Text(byline).foregroundStyle(.secondary)
                 }
                 HStack(spacing: 6) {
-                    Badge(text: game.engine.displayName)
+                    // 认不出引擎时不显示，“未知”放在最显眼的地方像是出错了。
+                    if game.engine != .unknown { Badge(text: game.engine.displayName) }
                     Badge(text: game.locale.displayName)
                     Badge(text: backendText)
                 }
@@ -179,9 +196,7 @@ struct GameDetailView: View {
         HStack(spacing: 0) {
             Stat(title: "VNDB 评分", value: game.metadata?.ratingText ?? "—")
             Divider().frame(height: 32)
-            Stat(title: "平均通关", value: game.metadata?.lengthText ?? "—")
-            Divider().frame(height: 32)
-            Stat(title: "已玩", value: playTime)
+            Stat(title: progressTitle, value: playTime, progress: playProgress)
             Divider().frame(height: 32)
             Stat(title: "上次游玩", value: game.lastPlayedAt?.formatted(.relative(presentation: .named)) ?? "还没玩过")
         }
@@ -189,9 +204,131 @@ struct GameDetailView: View {
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
     }
 
+    private var progressTitle: String {
+        game.metadata?.lengthText.map { "已玩 / 平均通关\($0)" } ?? "已玩"
+    }
+
+    /// 已玩时长占 VNDB 平均通关时长的比例；没有通关时长时不显示进度条。
+    private var playProgress: Double? {
+        guard let minutes = game.metadata?.lengthMinutes, minutes > 0 else { return nil }
+        return min(game.totalPlaySeconds / 60 / Double(minutes), 1)
+    }
+
     private var playTime: String {
         let minutes = Int(game.totalPlaySeconds / 60)
         return minutes < 60 ? "\(minutes) 分钟" : "\(minutes / 60) 小时 \(minutes % 60) 分"
+    }
+
+    // MARK: - 存档
+
+    private var savesSection: some View {
+        let busy = model.savesBusy.contains(game.id)
+        let backups = model.saveBackups(for: game)
+        return HStack(spacing: 12) {
+            Image(systemName: "externaldrive.badge.timemachine")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("存档").font(.headline)
+                Group {
+                    if busy {
+                        Text("正在处理存档…")
+                    } else if let last = backups.first {
+                        Text("上次备份 \(last.date.formatted(.relative(presentation: .named)))（\(last.kind.displayName)）· 共 \(backups.count) 份")
+                    } else if (game.saveLocations ?? []).isEmpty {
+                        Text("还没找到存档。在游戏里存一次档再退出，Kazusa 会自动找到并备份。")
+                    } else {
+                        Text("还没有备份。")
+                    }
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+            if busy { ProgressView().controlSize(.small) }
+            Button("立即备份") { model.backUpSaves(for: game) }
+                .disabled(busy || (game.saveLocations ?? []).isEmpty)
+            Menu("恢复") {
+                ForEach(backups.prefix(30)) { backup in
+                    Button("\(backup.date.formatted(date: .abbreviated, time: .shortened))（\(backup.kind.displayName)）") {
+                        restoreCandidate = backup
+                    }
+                }
+            }
+            .fixedSize()
+            .disabled(busy || backups.isEmpty)
+        }
+        .padding(14)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - 截图和角色
+
+    // shortcut: 图片走 AsyncImage + URLSession 默认缓存，离线时可能显示不出来；要离线看再存到本地。
+    @ViewBuilder
+    private var screenshotsSection: some View {
+        if let shots = game.metadata?.screenshots, !shots.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("截图").font(.title2.bold())
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 10) {
+                        ForEach(shots) { shot in
+                            Button { viewingScreenshot = shot } label: {
+                                AsyncImage(url: shot.thumbnail) { image in
+                                    image.resizable().scaledToFill()
+                                } placeholder: {
+                                    Rectangle().fill(.quaternary)
+                                }
+                                .frame(width: 214, height: 120)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("截图")
+                            .help("点击查看大图")
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var charactersSection: some View {
+        if let characters = game.metadata?.characters, !characters.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("角色").font(.title2.bold())
+                ScrollView(.horizontal) {
+                    LazyHStack(alignment: .top, spacing: 16) {
+                        ForEach(characters) { c in
+                            Link(destination: URL(string: "https://vndb.org/\(c.id)")!) {
+                                VStack(spacing: 6) {
+                                    AsyncImage(url: c.imageURL) { image in
+                                        image.resizable().scaledToFill()
+                                    } placeholder: {
+                                        Circle().fill(.quaternary).overlay {
+                                            Image(systemName: "person.fill").foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    // VNDB 角色图是半身立绘，从顶上裁才露出脸。
+                                    .frame(width: 72, height: 72, alignment: .top)
+                                    .clipShape(Circle())
+                                    Text(c.original ?? c.name).font(.callout).lineLimit(1)
+                                    if c.isProtagonist {
+                                        Text("主角").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                .frame(width: 88)
+                            }
+                            .buttonStyle(.plain)
+                            .help("\(c.name)：在 VNDB 上查看")
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
     }
 
     // MARK: - 简介
@@ -205,6 +342,9 @@ struct GameDetailView: View {
                 if let id = game.vndbID {
                     Link("在 VNDB 上查看", destination: URL(string: "https://vndb.org/\(id)")!).font(.callout)
                 }
+            }
+            if let tags = game.metadata?.tags, !tags.isEmpty {
+                Text(tags.joined(separator: "  ·  ")).font(.callout).foregroundStyle(.secondary)
             }
             if let synopsis = game.metadata?.synopsis {
                 synopsisView(original: synopsis, translation: game.metadata?.synopsisTranslation)
@@ -302,7 +442,7 @@ struct GameDetailView: View {
                     Button("打开 C 盘（前缀）") { open(model.prefixDriveC(for: game), name: "前缀") }
                 }
             }
-            Section("存档") { savesMenu }
+            Section("存档") { Button("打开备份文件夹") { model.openBackupsFolder(for: game) } }
             Section {
                 Button("从游戏库移除…", role: .destructive) { model.confirmingRemoval = .init(id: game.id) }
             }
@@ -310,35 +450,6 @@ struct GameDetailView: View {
             Label("更多", systemImage: "ellipsis.circle")
         }
         .help("封面、VNDB 资料、存档备份等操作")
-        .confirmationDialog(
-            "用 \(restoreCandidate?.date.formatted(date: .abbreviated, time: .shortened) ?? "") 的备份替换现在的存档？",
-            isPresented: Binding(get: { restoreCandidate != nil }, set: { if !$0 { restoreCandidate = nil } }),
-            presenting: restoreCandidate
-        ) { backup in
-            Button("恢复", role: .destructive) { model.restoreSaves(backup, for: game) }
-        } message: { _ in
-            Text("现在的存档会先自动备份一份（标着“恢复前”）。")
-        }
-    }
-
-    @ViewBuilder
-    private var savesMenu: some View {
-        let busy = model.savesBusy.contains(game.id)
-        Button("立即备份存档") { model.backUpSaves(for: game) }
-            .disabled(busy || (game.saveLocations ?? []).isEmpty)
-        let backups = model.saveBackups(for: game)
-        Menu("恢复存档") {
-            if backups.isEmpty {
-                Text("还没有备份。存档后退出游戏会自动备份。")
-            }
-            ForEach(backups.prefix(30)) { backup in
-                Button("\(backup.date.formatted(date: .abbreviated, time: .shortened))（\(backup.kind.displayName)）") {
-                    restoreCandidate = backup
-                }
-            }
-        }
-        .disabled(busy || backups.isEmpty)
-        Button("打开备份文件夹") { model.openBackupsFolder(for: game) }
     }
 
     private func open(_ url: URL, name: String) {
@@ -353,13 +464,46 @@ struct GameDetailView: View {
 private struct Stat: View {
     let title: String
     let value: String
+    var progress: Double?
 
     var body: some View {
         VStack(spacing: 4) {
             Text(value).font(.title3.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+            if let progress {
+                ProgressView(value: progress).frame(maxWidth: 140).controlSize(.small)
+            }
             Text(title).font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+/// 看大图：左右方向键切换，Esc 或点一下关闭。
+private struct ScreenshotViewer: View {
+    let screenshots: [GameMetadata.Screenshot]
+    @State var current: GameMetadata.Screenshot
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        AsyncImage(url: current.url) { image in
+            image.resizable().scaledToFit()
+        } placeholder: {
+            AsyncImage(url: current.thumbnail) { $0.resizable().scaledToFit() } placeholder: { ProgressView() }
+        }
+        .frame(minWidth: 800, minHeight: 450)
+        .contentShape(Rectangle())
+        .onTapGesture { dismiss() }
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(.leftArrow) { step(-1) }
+        .onKeyPress(.rightArrow) { step(1) }
+        .onExitCommand { dismiss() }
+    }
+
+    private func step(_ delta: Int) -> KeyPress.Result {
+        guard let i = screenshots.firstIndex(of: current) else { return .ignored }
+        current = screenshots[(i + delta + screenshots.count) % screenshots.count]
+        return .handled
     }
 }
 
