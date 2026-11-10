@@ -113,7 +113,6 @@ struct LibraryView: View {
                         ForEach(model.games) { game in
                             GameCard(game: game,
                                      cover: model.coverImages[game.id],
-                                     isSelected: game.id == model.selectedGameID,
                                      isRunning: model.runningGameIDs.contains(game.id),
                                      isOpened: game.id == model.openedGameID,
                                      onLaunch: { model.launch(game) })
@@ -179,7 +178,6 @@ struct LibraryView: View {
 struct GameCard: View {
     let game: Game
     let cover: NSImage?
-    let isSelected: Bool
     let isRunning: Bool
     /// 详情页打开着：封面在详情页上，卡片这里先藏起来。
     var isOpened = false
@@ -245,10 +243,6 @@ struct GameCard: View {
                         .padding(6)
                 }
             }
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(isSelected ? Color.accentColor : .clear, lineWidth: 3)
-            )
 
             Text(game.title)
                 .font(.headline)
