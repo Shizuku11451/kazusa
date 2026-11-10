@@ -40,6 +40,10 @@ clone() { # 目录 仓库 标签 [--recursive]
 
 clone onsyuri https://github.com/YuriSizuku/OnscripterYuri.git "$ONSYURI_TAG"
 [[ "$(git -C onsyuri rev-parse HEAD)" == "$ONSYURI_COMMIT" ]] || { echo "onsyuri 提交不对" >&2; exit 1; }
+# Kazusa 的补丁：把显示出来的句子写到 KAZUSA_TEXT_PIPE 给翻译用（见 README）。每次都从干净的源码打。
+git -C onsyuri checkout -q --force "$ONSYURI_COMMIT"
+git -C onsyuri clean -qfd src/onsyuri
+git -C onsyuri apply "$HERE/kazusa.patch"
 clone SDL https://github.com/libsdl-org/SDL.git "$SDL2_TAG"
 clone SDL_image https://github.com/libsdl-org/SDL_image.git "$SDL2_IMAGE_TAG"
 clone SDL_mixer https://github.com/libsdl-org/SDL_mixer.git "$SDL2_MIXER_TAG"
@@ -92,7 +96,7 @@ SOURCES=(
   ONScripter ONScripter_animation ONScripter_command ONScripter_effect ONScripter_effect_breakup
   ONScripter_event ONScripter_file ONScripter_file2 ONScripter_image ONScripter_lut onscripter_main
   ONScripter_rmenu ONScripter_sound ONScripter_text Parallel resize_image SarReader ScriptHandler
-  ScriptParser ScriptParser_command sjis2utf16
+  ScriptParser ScriptParser_command sjis2utf16 kazusa_text
   builtin_dll/layer_oldmovie builtin_dll/layer_snow builtin_dll/ONScripter_effect_cascade builtin_dll/ONScripter_effect_trig
 )
 OBJ="$WORK/build/onsyuri"

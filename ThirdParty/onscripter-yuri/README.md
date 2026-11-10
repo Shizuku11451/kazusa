@@ -18,6 +18,8 @@ ThirdParty/onscripter-yuri/build.sh
 - 音频用 SDL_mixer 内置的 WAV / OGG（stb_vorbis）/ MP3（minimp3）/ FLAC（dr_flac）解码，MIDI 用系统的 AudioToolbox；
 - 去掉了上游 macOS 配置里的 `USE_GLES`（只用于 `--sharpness`）和 `USE_FILELOG`（会往游戏目录写 `stdout.txt` / `stderr.txt`）。
 
+源码检出后会打上 [kazusa.patch](kazusa.patch)（见下面“文本输出”）。
+
 静态链接进去的库的许可证在 [licenses/](licenses/)：SDL2 系列为 zlib，FreeType 为 FTL，HarfBuzz 和 Lua 为 MIT。
 
 `prebuilt/onsyuri` 提交在仓库里，`scripts/build-app.sh` 会把它和这些许可证一起放进 `Kazusa.app/Contents/Resources/onscripter-yuri/`。
@@ -33,5 +35,14 @@ onsyuri --root <游戏目录> --enc:<sjis|gbk|utf8> [--font <字体>] [游戏的
 - **编码**：读取 `0.txt` / `00.txt` / `nscript.dat`（异或 0x84 解密）的开头，是合法 UTF-8 就用 `utf8`，否则日文区域用 `sjis`、中文区域用 `gbk`。onsyuri 不支持 Big5，繁体中文版只能按 GBK 读；
 - **字体**：游戏目录里有 `default.ttf` 就用它，否则按区域用系统自带的ヒラギノ角ゴシック（日文）或冬青黑体（中文）；
 - **存档**：留在游戏目录（ONScripter 的默认位置），和 Windows 版通用。
+
+## 文本输出
+
+[kazusa.patch](kazusa.patch) 给引擎加了 `src/onsyuri/kazusa_text.{h,cpp}`，用来把台词交给翻译悬浮窗：
+
+- 设置了环境变量 `KAZUSA_TEXT_PIPE` 时，引擎以非阻塞方式打开这个命名管道（Kazusa 已经以读写方式打开，所以不会卡住），先写一行 `{"type":"thread","id":"<pid>:0:0:0","hookcode":"ONScripter","name":"ONScripter"}`；
+- `drawChar` 每画进文本窗口一个字就记下来（跳过注音用的 `ruby_font`），按脚本编码转成 UTF-8；
+- 到 `clickWait`（`@`）或 `clickNewPage`（`\`）时，把攒下的整句写成一行 `{"type":"text","id":...,"text":"..."}`，和 `kazusa-hook.exe` 的格式一样；
+- 写不进去（Kazusa 没在读、管道满了）就丢掉这一句，不会让游戏卡住或收到 SIGPIPE。没有这个环境变量时什么都不做。
 
 更多参数（`--fullscreen`、`--scale`、`--save-dir` 等）运行 `prebuilt/onsyuri --help` 查看，填在游戏“设置”的“启动参数”里即可。

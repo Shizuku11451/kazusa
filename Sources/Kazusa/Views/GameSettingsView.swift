@@ -91,6 +91,14 @@ struct GameSettingsView: View {
                             Text("直接从游戏进程读出台词，比截图识别准确、不用对准文本框。个别游戏钩不到时关掉，改用 OCR。")
                         }
                         .disabled(!game.translation.enabled)
+                    } else if NativeEngines.providesText(game.engine) {
+                        Toggle(isOn: $game.translation.usesTextHook) {
+                            Text("从引擎直接读取台词")
+                            Text("原生引擎把显示的每句话直接交给 Kazusa，比截图识别准确、不用对准文本框。关掉改用 OCR。")
+                        }
+                        .disabled(!game.translation.enabled)
+                    }
+                    if isWine {
                         if game.translation.hookThread != nil {
                             LabeledContent {
                                 Button("改回自动") { game.translation.hookThread = nil }

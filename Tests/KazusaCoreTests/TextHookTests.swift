@@ -149,4 +149,37 @@ import Testing
         #expect(TextHookHost.files(for: .x86, bundle: nil) != nil)
         #expect(TextHookHost.files(for: .x64, bundle: nil) != nil)
     }
+
+    @Test func readsNativeEngineText() async throws {
+        let dir = FileManager.default.temporaryDirectory
+        let (stream, continuation) = AsyncStream.makeStream(of: HookEvent.self)
+        let source = try NativeTextSource(directory: dir) { continuation.yield($0) }
+        let path = try #require(source.environment[NativeTextSource.environmentKey])
+        #expect(FileManager.default.fileExists(atPath: path))
+
+        // 和引擎一样非阻塞地打开；一行分两次写，验证按行拼接
+        let fd = open(path, O_WRONLY | O_NONBLOCK)
+        #expect(fd >= 0)
+        let lines = #"{"type":"thread","id":"7:0:0:0","hookcode":"ONScripter","name":"ONScripter"}"# + "\n"
+            + #"{"type":"text","id":"7:0:0:0","text":"「雪が"#
+        let rest = #"降ってる」"}"# + "\n"
+        _ = lines.withCString { write(fd, $0, strlen($0)) }
+        try await Task.sleep(for: .milliseconds(50))
+        _ = rest.withCString { write(fd, $0, strlen($0)) }
+        close(fd)
+
+        var events: [HookEvent] = []
+        for await event in stream {
+            events.append(event)
+            if events.count == 2 { break }
+        }
+        #expect(events == [
+            .thread(HookThread(id: "7:0:0:0", hookcode: "ONScripter", name: "ONScripter")),
+            .text(threadID: "7:0:0:0", text: "「雪が降ってる」"),
+        ])
+        source.stop()
+        source.stop()
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(!FileManager.default.fileExists(atPath: path))
+    }
 }

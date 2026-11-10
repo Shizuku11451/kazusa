@@ -10,16 +10,20 @@ import KazusaCore
 /// 用 CGWindowList 轮询：窗口位置和所属进程不需要录屏权限，也不需要辅助功能权限。
 @MainActor
 final class GameWindowTracker {
-    private let executable: URL
+    private let executable: URL?
     private let onChange: (_ old: NSRect?, _ new: NSRect) -> Void
     private var task: Task<Void, Never>?
     private var pids: [pid_t] = []
     private var lastPIDScan = Date.distantPast
     private(set) var frame: NSRect?
 
-    /// - Parameter onChange: 游戏窗口第一次找到（old 为 nil）或位置、大小变了时回调，坐标是 AppKit 屏幕坐标。
-    init(executable: URL, onChange: @escaping (_ old: NSRect?, _ new: NSRect) -> Void) {
+    /// - Parameters:
+    ///   - executable: Wine 游戏的 exe，按它找 Wine 里的游戏进程。
+    ///   - pid: 已知的游戏进程（原生引擎），给了就只看这个进程。
+    ///   - onChange: 游戏窗口第一次找到（old 为 nil）或位置、大小变了时回调，坐标是 AppKit 屏幕坐标。
+    init(executable: URL?, pid: pid_t? = nil, onChange: @escaping (_ old: NSRect?, _ new: NSRect) -> Void) {
         self.executable = executable
+        self.pids = pid.map { [$0] } ?? []
         self.onChange = onChange
     }
 
@@ -41,9 +45,8 @@ final class GameWindowTracker {
     private func tick() {
         var found = Self.mainWindow(of: pids)
         // 游戏刚启动、换了进程（启动器拉起主程序）时重新找进程，最多两秒找一次。
-        if found == nil, Date().timeIntervalSince(lastPIDScan) > 2 {
+        if found == nil, let exe = executable, Date().timeIntervalSince(lastPIDScan) > 2 {
             lastPIDScan = Date()
-            let exe = executable
             pids = WineProcess.pids(running: exe)
             found = Self.mainWindow(of: pids)
         }

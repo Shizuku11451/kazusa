@@ -51,6 +51,8 @@ final class OverlayState {
 
     /// 挂着文本钩子的游戏。
     var hookGameID: UUID?
+    /// 能不能手动输入特殊码（只有 Wine 里的 LunaHook 能用，原生引擎自己输出台词）。
+    var hookAcceptsCodes = true
     /// 钩到过文本的各路（给“文本来源”菜单用）。
     var hookThreads: [HookThreadSelector.ThreadState] = []
     var activeHookThread: String?
@@ -247,17 +249,19 @@ final class TranslatorOverlayController {
 
     // MARK: - 文本钩子
 
-    /// 游戏刚用 Wine 启动、钩子程序即将运行：切到字幕条。
-    func beginHook(game: Game) {
+    /// 游戏刚启动、即将收到钩到的文本：切到字幕条。
+    /// - Parameter nativePID: 原生引擎的进程号。原生引擎自己输出台词，没有特殊码可插。
+    func beginHook(game: Game, nativePID: pid_t? = nil) {
         selector = HookThreadSelector(remembered: game.translation.hookThread)
         manualHookCodes = Set((game.translation.hookCodes ?? []).map(Self.codeKey))
         queuedText = nil
         state.hookGameID = game.id
+        state.hookAcceptsCodes = nativePID == nil
         syncThreads()
-        startFollowing(game)
+        startFollowing(game, pid: nativePID)
         show(game: game)
         setMode(.hook)
-        state.status = "正在连接游戏…"
+        state.status = nativePID == nil ? "正在连接游戏…" : "推进一句对白，台词会显示在这里。"
     }
 
     func hookFailed(_ message: String) {
@@ -276,7 +280,7 @@ final class TranslatorOverlayController {
         switch event {
         case nil:
             stopFollowing()
-            info("文本钩子已退出。")
+            info(state.hookAcceptsCodes ? "文本钩子已退出。" : "游戏已退出。")
         case .ready:
             info("已连接，推进一句对白试试。")
         case .info(level: 4, let engine):
@@ -343,9 +347,9 @@ final class TranslatorOverlayController {
 
     // MARK: - 跟随游戏窗口
 
-    private func startFollowing(_ game: Game) {
+    private func startFollowing(_ game: Game, pid: pid_t?) {
         stopFollowing()
-        let tracker = GameWindowTracker(executable: game.executableURL) { [weak self] old, new in
+        let tracker = GameWindowTracker(executable: pid == nil ? game.executableURL : nil, pid: pid) { [weak self] old, new in
             self?.gameWindowMoved(from: old, to: new)
         }
         windowTracker = tracker
@@ -579,8 +583,10 @@ struct OverlayView: View {
                     if state.pinnedHookThread == t.id { Label(title, systemImage: "checkmark") } else { Text(title) }
                 }
             }
-            Divider()
-            Button("输入特殊码…") { controller.promptHookCode() }
+            if state.hookAcceptsCodes {
+                Divider()
+                Button("输入特殊码…") { controller.promptHookCode() }
+            }
         } label: {
             Text(state.pinnedHookThread == nil ? "自动选择" : "手动指定")
         }

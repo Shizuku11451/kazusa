@@ -1,0 +1,211 @@
+diff --git a/src/onsyuri/ONScripter_text.cpp b/src/onsyuri/ONScripter_text.cpp
+index 32615ce..39561b4 100644
+--- a/src/onsyuri/ONScripter_text.cpp
++++ b/src/onsyuri/ONScripter_text.cpp
+@@ -25,6 +25,7 @@
+ #include "ONScripter.h"
+ #include "coding2utf16.h"
+ #include "Utils.h"
++#include "kazusa_text.h"
+ 
+ extern Coding2UTF16 *coding2utf16;
+ 
+@@ -257,6 +258,7 @@ void ONScripter::drawChar( char* text, FontInfo *info, bool flush_flag, bool loo
+         current_page->add( text[0] );
+         if (text[1]) current_page->add( text[1] );
+         if (text[2]) current_page->add( text[2] );
++        if (info != &ruby_font) kazusaTextAppend( text ); // ruby (furigana) is not part of the sentence
+     }
+ }
+ 
+@@ -528,6 +530,7 @@ bool ONScripter::clickWait( char *out_text )
+         else{ // called on '@'
+             flush(refreshMode());
+         }
++        kazusaTextFlush();
+         num_chars_in_sentence = 0;
+ 
+         event_mode = IDLE_EVENT_MODE;
+@@ -543,6 +546,7 @@ bool ONScripter::clickWait( char *out_text )
+                 script_h.getStringBuffer()[ string_buffer_offset ] == ' ') ||
+                script_h.getStringBuffer()[ string_buffer_offset ] == '\t' ) string_buffer_offset ++;
+ 
++        kazusaTextFlush();
+         if ( textgosub_label ){
+             saveon_flag = false;
+ 
+@@ -586,6 +590,7 @@ bool ONScripter::clickNewPage( char *out_text )
+     if (script_h.checkClickstr(script_h.getStringBuffer() + string_buffer_offset) != 1) string_buffer_offset++;
+     string_buffer_offset++;
+ 
++    kazusaTextFlush();
+     if ( (skip_mode & SKIP_NORMAL || ctrl_pressed_status) && !textgosub_label  ){
+         num_chars_in_sentence = 0;
+         clickstr_state = CLICK_NEWPAGE;
+diff --git a/src/onsyuri/kazusa_text.cpp b/src/onsyuri/kazusa_text.cpp
+new file mode 100644
+index 0000000..cae1685
+--- /dev/null
++++ b/src/onsyuri/kazusa_text.cpp
+@@ -0,0 +1,130 @@
++/* -*- C++ -*-
++ *
++ *  kazusa_text.cpp - send displayed sentences to Kazusa for translation
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2 of the License, or
++ *  (at your option) any later version.
++ */
++
++#include "kazusa_text.h"
++#include "coding2utf16.h"
++#include "ScriptHandler.h"
++
++#include <fcntl.h>
++#include <signal.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string>
++#include <unistd.h>
++
++extern Coding2UTF16 *coding2utf16;
++
++static int pipe_fd = -2; // -2: not opened yet, -1: disabled
++static std::string sentence; // UTF-8
++static char thread_id[32];
++
++static void writeLine(const std::string &line)
++{
++    const char *p = line.data();
++    size_t left = line.size();
++    while (left > 0) {
++        ssize_t n = write(pipe_fd, p, left);
++        if (n <= 0) return; // reader gone or pipe full: drop the line, never block the game
++        p += n;
++        left -= (size_t)n;
++    }
++}
++
++static void appendJSONString(std::string &out, const std::string &s)
++{
++    out += '"';
++    for (unsigned char c : s) {
++        switch (c) {
++        case '"': out += "\\\""; break;
++        case '\\': out += "\\\\"; break;
++        case '\n': out += "\\n"; break;
++        case '\t': out += "\\t"; break;
++        default:
++            if (c < 0x20) {
++                char buf[8];
++                snprintf(buf, sizeof(buf), "\\u%04x", c);
++                out += buf;
++            } else {
++                out += (char)c;
++            }
++        }
++    }
++    out += '"';
++}
++
++static bool ensureOpen()
++{
++    if (pipe_fd != -2) return pipe_fd >= 0;
++    pipe_fd = -1;
++    const char *path = getenv("KAZUSA_TEXT_PIPE");
++    if (!path || !*path) return false;
++    // Kazusa keeps the FIFO open for reading, so this never blocks; O_NONBLOCK makes
++    // writes fail instead of stalling the game when Kazusa stops reading.
++    int fd = open(path, O_WRONLY | O_NONBLOCK | O_CLOEXEC);
++    if (fd < 0) return false;
++    signal(SIGPIPE, SIG_IGN);
++#ifdef F_SETNOSIGPIPE
++    fcntl(fd, F_SETNOSIGPIPE, 1);
++#endif
++    pipe_fd = fd;
++    snprintf(thread_id, sizeof(thread_id), "%d:0:0:0", (int)getpid());
++    std::string line = "{\"type\":\"thread\",\"id\":\"";
++    line += thread_id;
++    line += "\",\"hookcode\":\"ONScripter\",\"name\":\"ONScripter\"}\n";
++    writeLine(line);
++    return true;
++}
++
++static void appendUTF16(uint16_t u)
++{
++    if (u == 0) return;
++    unsigned char buf[4];
++    int n = coding2utf16->convUTF16ToUTF8(buf, u);
++    sentence.append((const char *)buf, n);
++}
++
++void kazusaTextAppend(const char *text)
++{
++    if (!ensureOpen() || !text) return;
++    if (coding2utf16->force_utf8) { // script is already UTF-8
++        sentence += text;
++        return;
++    }
++    const unsigned char *p = (const unsigned char *)text;
++    while (*p) {
++        if (IS_TWO_BYTE(*p) && p[1]) {
++            // Same conversion as ONScripter::drawGlyph.
++            appendUTF16(coding2utf16->conv2UTF16((uint16_t)(p[0] << 8 | p[1])));
++            p += 2;
++        } else if ((*p & 0xe0) == 0xa0 || (*p & 0xe0) == 0xc0) {
++            appendUTF16((uint16_t)(*p - 0xa0 + 0xff60)); // half-width katakana
++            p++;
++        } else {
++            sentence += (char)*p;
++            p++;
++        }
++    }
++}
++
++void kazusaTextFlush()
++{
++    if (pipe_fd < 0) {
++        sentence.clear();
++        return;
++    }
++    if (sentence.empty()) return;
++    std::string line = "{\"type\":\"text\",\"id\":\"";
++    line += thread_id;
++    line += "\",\"text\":";
++    appendJSONString(line, sentence);
++    line += "}\n";
++    writeLine(line);
++    sentence.clear();
++}
+diff --git a/src/onsyuri/kazusa_text.h b/src/onsyuri/kazusa_text.h
+new file mode 100644
+index 0000000..0b021d3
+--- /dev/null
++++ b/src/onsyuri/kazusa_text.h
+@@ -0,0 +1,25 @@
++/* -*- C++ -*-
++ *
++ *  kazusa_text.h - send displayed sentences to Kazusa for translation
++ *
++ *  When KAZUSA_TEXT_PIPE names a FIFO, every sentence is written to it as one
++ *  JSON line in the same format as Kazusa's text hook host:
++ *    {"type":"thread","id":"<pid>:0:0:0","hookcode":"ONScripter","name":"..."}
++ *    {"type":"text","id":"<pid>:0:0:0","text":"<UTF-8>"}
++ *  Without the variable nothing happens.
++ *
++ *  This program is free software; you can redistribute it and/or modify
++ *  it under the terms of the GNU General Public License as published by
++ *  the Free Software Foundation; either version 2 of the License, or
++ *  (at your option) any later version.
++ */
++
++#ifndef __KAZUSA_TEXT_H__
++#define __KAZUSA_TEXT_H__
++
++// Characters drawn into the text window (script encoding, as passed to drawChar).
++void kazusaTextAppend(const char *text);
++// The sentence is complete (click wait / new page): send what was collected.
++void kazusaTextFlush();
++
++#endif

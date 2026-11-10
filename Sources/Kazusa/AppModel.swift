@@ -47,6 +47,7 @@ final class AppModel {
     @ObservationIgnored lazy var overlay = TranslatorOverlayController(model: self)
     /// 正在运行的文本钩子，按游戏 ID。
     @ObservationIgnored private var hookHosts: [UUID: TextHookHost] = [:]
+    @ObservationIgnored private var nativeTextSources: [UUID: NativeTextSource] = [:]
 
     /// 打开游戏详情页，同时选中它（翻译悬浮窗会用选中的游戏）。
     func open(_ id: UUID) {
@@ -451,11 +452,22 @@ final class AppModel {
             do {
                 let arguments = await Task.detached { NativeEngines.launchArguments(for: game) }.value
                 if canFallBack { automaticNativeLaunches.insert(game.id) }
-                try await launcher.launchNative(game, binary: binary, arguments: arguments) { [weak self] exit in
-                    Task { @MainActor in self?.didExit(exit) }
+                let textSource = startNativeText(for: game)
+                do {
+                    try await launcher.launchNative(game, binary: binary, arguments: arguments,
+                                                    extraEnvironment: textSource?.environment ?? [:]) { [weak self] exit in
+                        Task { @MainActor in self?.didExit(exit) }
+                    }
+                } catch {
+                    stopTextHook(for: game.id)
+                    throw error
                 }
                 if game.translation.enabled {
-                    overlay.show(game: game)
+                    if textSource != nil {
+                        overlay.beginHook(game: game, nativePID: await launcher.processID(for: game.id))
+                    } else {
+                        overlay.show(game: game)
+                    }
                 }
             } catch {
                 runningGameIDs.remove(game.id)
@@ -628,8 +640,28 @@ final class AppModel {
         }
     }
 
+    /// 原生引擎自己输出台词（目前只有 ONScripter）：建好管道，引擎启动时把路径传过去。
+    /// 不需要或建不了时返回 nil，改用 OCR 悬浮窗。
+    private func startNativeText(for game: Game) -> NativeTextSource? {
+        guard game.translation.enabled, game.translation.usesTextHook, NativeEngines.providesText(game.engine) else { return nil }
+        do {
+            let source = try NativeTextSource { [weak self] event in
+                Task { @MainActor in self?.overlay.handleHook(event, gameID: game.id) }
+            }
+            nativeTextSources[game.id] = source
+            return source
+        } catch {
+            appendLog("原生引擎的文本输出没能启动，改用 OCR：\(error.localizedDescription)", for: game)
+            return nil
+        }
+    }
+
     private func stopTextHook(for id: UUID) {
         hookHosts.removeValue(forKey: id)?.stop()
+        if let source = nativeTextSources.removeValue(forKey: id) {
+            source.stop()
+            overlay.handleHook(nil, gameID: id)
+        }
     }
 
     /// 手动插入特殊码并记到游戏设置里，以后每次连上游戏都会自动插入。返回是否已发给正在运行的钩子。

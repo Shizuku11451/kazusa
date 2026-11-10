@@ -93,6 +93,7 @@ public actor GameLauncher {
         _ game: Game,
         binary: URL,
         arguments: [String],
+        extraEnvironment: [String: String] = [:],
         onExit: @escaping @Sendable (GameExit) -> Void
     ) async throws {
         guard sessions[game.id] == nil else { throw LaunchError.alreadyRunning }
@@ -103,6 +104,7 @@ public actor GameLauncher {
         var env = ProcessInfo.processInfo.environment
         env["LANG"] = game.locale.posixLocale
         env.merge(game.environment) { $1 }
+        env.merge(extraEnvironment) { $1 }
 
         let logURL = logFile(for: game.id)
         FileManager.default.createFile(atPath: logURL.path, contents: nil)
@@ -150,6 +152,11 @@ public actor GameLauncher {
         }
         try process.run()
         return process
+    }
+
+    /// 正在运行的游戏进程号（原生引擎就是引擎本身；Wine 游戏是 wine 启动器，不是游戏窗口所在的进程）。
+    public func processID(for id: UUID) -> pid_t? {
+        sessions[id].map { $0.process.processIdentifier }
     }
 
     /// 结束游戏：先礼貌地终止；Wine 游戏再杀掉前缀里的 wineserver（会结束同前缀的所有 Windows 进程）。
