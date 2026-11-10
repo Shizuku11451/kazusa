@@ -731,7 +731,7 @@ final class AppModel {
 
     func makeTranslator() -> LLMTranslator? {
         guard let provider = settings.activeProvider else { return nil }
-        return LLMTranslator(provider: provider, prompt: settings.prompt, apiKey: Keychain.apiKey(for: provider.id))
+        return LLMTranslator(provider: provider, prompt: settings.prompt, apiKey: APIKeyStore.shared.apiKey(for: provider.id))
     }
 
     // MARK: - 错误

@@ -24,7 +24,7 @@
 | 运行时 | 自动发现 Wine（/Applications、Homebrew），也可以从 `.tar.xz` 导入到 Kazusa 自己的 Runtimes 目录 |
 | 文本钩子 | 用 Wine 启动日文游戏时，自动把 [LunaHook](ThirdParty/lunahook/) 注入游戏（按游戏位数选 32 / 64 位），识别引擎、直接读出台词，不用截图、不用对准文本框。游戏有好几路文本（对白、人名、选项）时自动挑对白那一路，也可以手动指定。译文显示在屏幕下方的字幕条里。个别游戏钩不到时，可以在游戏设置里关掉，改用 OCR。用 ONScripter 原生运行的 NScripter 游戏由引擎直接把台词交给 Kazusa（不含注音），同样显示在字幕条里 |
 | 翻译悬浮窗（OCR） | 半透明取景框盖在游戏文本框上，用 ScreenCaptureKit 截图、Vision 做 OCR，再交给 LLM 翻译。三种模式：手动、自动（画面稳定后才翻译）、剪贴板。系统级快捷键 ⇧⌘R 识别、⇧⌘L 锁定（点击穿透到游戏），游戏在前台也能用；按游戏记住悬浮窗位置；译文流式输出 |
-| 自定义 LLM | 支持 OpenAI 兼容接口（DeepSeek、Ollama、LM Studio、各类中转）和 Anthropic 接口；会带上前文和每个游戏的术语表；API Key 存在钥匙串里 |
+| 自定义 LLM | 支持 OpenAI 兼容接口（DeepSeek、Ollama、LM Studio、各类中转）和 Anthropic 接口；会带上前文和每个游戏的术语表；API Key 单独存在只有你能读的文件里 |
 
 ## 构建
 

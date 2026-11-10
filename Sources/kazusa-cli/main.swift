@@ -188,7 +188,7 @@ case "info":
         let settings = AppSettings.load(from: paths.settingsFile)
         guard let provider = settings.activeProvider else { fail("设置里还没有 LLM 接口") }
         let translator = LLMTranslator(provider: provider, prompt: .synopsis(targetLanguage: settings.prompt.targetLanguage),
-                                       apiKey: Keychain.apiKey(for: provider.id))
+                                       apiKey: APIKeyStore.shared.apiKey(for: provider.id))
         print("\n—— 译文（\(provider.name) / \(provider.model)）——")
         print(try await translator.translate(TranslationRequest(text: synopsis, glossary: m.synopsisGlossary(merging: [:]))))
     }

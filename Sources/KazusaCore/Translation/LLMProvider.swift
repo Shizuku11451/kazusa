@@ -16,7 +16,7 @@ public enum LLMAPIStyle: String, Codable, CaseIterable, Sendable {
     }
 }
 
-/// 用户自定义的一个 LLM 服务。API Key 不存在这里，而是存在钥匙串里（按 id 索引）。
+/// 用户自定义的一个 LLM 服务。API Key 不存在这里，而是存在 apikeys.json 里（按 id 索引，见 APIKeyStore）。
 public struct LLMProviderConfig: Codable, Hashable, Identifiable, Sendable {
     public var id: UUID
     public var name: String
