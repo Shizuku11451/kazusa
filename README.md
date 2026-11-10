@@ -138,6 +138,7 @@ Kazusa **不链接**下列组件，只在运行时把它们作为独立程序调
 
 - 修复版 `wow64cpu.dll`（LGPL-2.1-or-later），见 [ThirdParty/wow64cpu-rosetta](ThirdParty/wow64cpu-rosetta/)；
 - ONScripter 程序 `onsyuri`（GPL-2.0-or-later，静态链接了 zlib 许可的 SDL2、FTL 许可的 FreeType、MIT 许可的 HarfBuzz 和 Lua），见 [ThirdParty/onscripter-yuri](ThirdParty/onscripter-yuri/)；
+- krkr2 程序 `krkr2.app`（上游 MIT，含 BSD 式的吉里吉里许可证代码；静态链接的 cocos2d-x、FFmpeg（LGPL）、Boost 等依赖的许可证在目录的 `licenses/` 里），见 [ThirdParty/krkr2](ThirdParty/krkr2/)；
 - LunaHook 的 `LunaHost32/64.dll`、`LunaHook32/64.dll`（GPL-3.0，来自 LunaTranslator 发布包，未修改），只在 Wine 里由 `kazusa-hook.exe` 加载、注入游戏进程，见 [ThirdParty/lunahook](ThirdParty/lunahook/)。
 
 | 组件 | 许可证 | 使用方式 |
