@@ -49,7 +49,7 @@ public actor GameLauncher {
         paths.logsDir.appendingPathComponent("\(id.uuidString).log")
     }
 
-    /// - Parameter onExit: 进程退出时回调（在任意线程）。
+    /// - Parameter onExit: 进程退出、会话清掉之后回调（在任意线程）。
     public func launch(
         _ game: Game,
         runtime: WineRuntime,
@@ -147,8 +147,11 @@ public actor GameLauncher {
                 duration: Date().timeIntervalSince(startedAt),
                 logFile: logURL
             )
-            Task { await self?.didExit(gameID) }
-            onExit(exit)
+            // 先清掉会话再通知：调用方在 onExit 里可能马上重新启动（比如改用 Wine）。
+            Task {
+                await self?.didExit(gameID)
+                onExit(exit)
+            }
         }
         try process.run()
         return process
