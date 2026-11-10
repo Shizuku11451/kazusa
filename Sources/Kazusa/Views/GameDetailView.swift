@@ -65,7 +65,7 @@ struct GameDetailView: View {
                 }
                 HStack(spacing: 10) {
                     if isRunning {
-                        Button(role: .destructive) { model.stop(game) } label: {
+                        Button(role: .destructive) { model.confirmingStop = .init(id: game.id) } label: {
                             Label("停止", systemImage: "stop.fill").frame(minWidth: 88)
                         }
                         .controlSize(.extraLarge)
@@ -75,10 +75,9 @@ struct GameDetailView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.extraLarge)
-                        .keyboardShortcut(.return, modifiers: .command)
                     }
                     Button { model.gameSettings = .init(id: game.id) } label: {
-                        Label("设置", systemImage: "slider.horizontal.3")
+                        Label("游戏设置", systemImage: "slider.horizontal.3")
                     }
                     .controlSize(.extraLarge)
                 }
@@ -282,18 +281,19 @@ struct GameDetailView: View {
             Section {
                 Button("打开翻译悬浮窗") { model.overlay.show(game: game) }
                 Button("在 Finder 中显示") { NSWorkspace.shared.activateFileViewerSelecting([game.executableURL]) }
-                Button("打开日志") { open(model.logFile(for: game)) }
+                Button("打开日志") { open(model.logFile(for: game), name: "日志") }
                 if model.backend(for: game) == .wine {
-                    Button("打开 C 盘（前缀）") { open(model.prefixDriveC(for: game)) }
+                    Button("打开 C 盘（前缀）") { open(model.prefixDriveC(for: game), name: "前缀") }
                 }
             }
             Section("存档") { savesMenu }
             Section {
-                Button("从游戏库移除", role: .destructive) { model.remove(game) }
+                Button("从游戏库移除…", role: .destructive) { model.confirmingRemoval = .init(id: game.id) }
             }
         } label: {
             Label("更多", systemImage: "ellipsis.circle")
         }
+        .help("封面、VNDB 资料、存档备份等操作")
         .confirmationDialog(
             "用 \(restoreCandidate?.date.formatted(date: .abbreviated, time: .shortened) ?? "") 的备份替换现在的存档？",
             isPresented: Binding(get: { restoreCandidate != nil }, set: { if !$0 { restoreCandidate = nil } }),
@@ -325,11 +325,11 @@ struct GameDetailView: View {
         Button("打开备份文件夹") { model.openBackupsFolder(for: game) }
     }
 
-    private func open(_ url: URL) {
+    private func open(_ url: URL, name: String) {
         if FileManager.default.fileExists(atPath: url.path) {
             NSWorkspace.shared.open(url)
         } else {
-            model.alert = .init(title: "还不存在", message: "\(url.path)\n\n启动一次游戏后才会生成。")
+            model.alert = .init(title: "\(name)还没生成", message: "\(url.path)\n\n启动一次游戏后才会生成。")
         }
     }
 }

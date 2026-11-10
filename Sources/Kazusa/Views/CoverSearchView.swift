@@ -98,7 +98,7 @@ struct CoverSearchView: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .contentShape(Rectangle())
-                .onTapGesture { if !hidden { Task { await apply(entry) } } }
+                .activatable("用作封面：\(entry.displayTitle)") { if !hidden { Task { await apply(entry) } } }
             Text(entry.displayTitle).font(.caption).lineLimit(2)
             Text([entry.released, entry.id].compactMap { $0 }.joined(separator: " · "))
                 .font(.caption2).foregroundStyle(.secondary)

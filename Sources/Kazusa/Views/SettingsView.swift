@@ -122,6 +122,7 @@ struct TranslationSettingsView: View {
     @State private var apiKey = ""
     @State private var testInput = "冬馬かずさは、ピアノが上手だ。"
     @State private var testOutput = ""
+    @State private var testFailed = false
     @State private var testing = false
 
     var body: some View {
@@ -146,11 +147,13 @@ struct TranslationSettingsView: View {
                         ForEach(LLMProviderConfig.presets) { preset in
                             Button(preset.name) { add(preset) }
                         }
-                    } label: { Image(systemName: "plus") }
+                    } label: { Label("添加翻译服务", systemImage: "plus").labelStyle(.iconOnly) }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
-                    Button { removeSelected() } label: { Image(systemName: "minus") }
+                    .help("从预设添加一个翻译服务")
+                    Button { removeSelected() } label: { Label("删除翻译服务", systemImage: "minus").labelStyle(.iconOnly) }
                         .buttonStyle(.borderless)
+                        .help("删除选中的翻译服务和它的 API Key")
                         .disabled(selection == nil)
                     Spacer()
                 }
@@ -178,7 +181,12 @@ struct TranslationSettingsView: View {
                         Button("翻译") { runTest() }.disabled(testing)
                         if testing { ProgressView().controlSize(.small) }
                     }
-                    if !testOutput.isEmpty { Text(testOutput).textSelection(.enabled) }
+                    if testFailed {
+                        Label(testOutput, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red).textSelection(.enabled)
+                    } else if !testOutput.isEmpty {
+                        Text(testOutput).textSelection(.enabled)
+                    }
                 }
             }
             .formStyle(.grouped)
@@ -252,13 +260,15 @@ struct TranslationSettingsView: View {
         let translator = LLMTranslator(provider: provider, prompt: model.settings.prompt, apiKey: Keychain.apiKey(for: provider.id))
         testing = true
         testOutput = ""
+        testFailed = false
         let input = testInput
         Task {
             defer { testing = false }
             do {
                 testOutput = try await translator.translate(TranslationRequest(text: input))
             } catch {
-                testOutput = "❌ " + error.localizedDescription
+                testOutput = error.localizedDescription
+                testFailed = true
             }
         }
     }

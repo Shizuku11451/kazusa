@@ -19,6 +19,9 @@ final class AppModel {
     var coverSearch: GameRequest?
     /// 正在编辑哪个游戏的设置（运行方式、翻译等）。
     var gameSettings: GameRequest?
+    /// 等用户确认的“从游戏库移除”和“停止”。
+    var confirmingRemoval: GameRequest?
+    var confirmingStop: GameRequest?
     /// 正在从 VNDB 拉取资料的游戏。
     var metadataLoading: Set<UUID> = []
     /// 正在翻译简介的游戏，值是目前为止流式收到的译文。

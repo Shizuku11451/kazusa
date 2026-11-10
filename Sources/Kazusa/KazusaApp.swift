@@ -20,6 +20,24 @@ struct KazusaApp: App {
                 Button("添加游戏…") { model.presentImportPanel() }
                     .keyboardShortcut("o")
             }
+            CommandMenu("游戏") {
+                let game = model.selectedGame
+                let running = game.map { model.runningGameIDs.contains($0.id) } ?? false
+                Button("启动") { if let game { model.launch(game) } }
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(game == nil || running)
+                Button("停止…") { if let game { model.confirmingStop = .init(id: game.id) } }
+                    .disabled(!running)
+                Divider()
+                Button("游戏设置…") { if let game { model.gameSettings = .init(id: game.id) } }
+                    .keyboardShortcut("i")
+                    .disabled(game == nil)
+                Button("在 Finder 中显示") { if let game { NSWorkspace.shared.activateFileViewerSelecting([game.executableURL]) } }
+                    .disabled(game == nil)
+                Divider()
+                Button("从游戏库移除…") { if let game { model.confirmingRemoval = .init(id: game.id) } }
+                    .disabled(game == nil)
+            }
             CommandMenu("翻译") {
                 Button("打开翻译悬浮窗") { model.overlay.show(game: model.selectedGame) }
                     .keyboardShortcut("t", modifiers: [.command, .shift])

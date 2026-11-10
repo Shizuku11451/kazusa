@@ -21,8 +21,8 @@ enum TextSourceMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .manual: "手动"
-        case .auto: "自动 OCR"
+        case .manual: "OCR（手动）"
+        case .auto: "OCR（自动）"
         case .clipboard: "剪贴板"
         case .hook: "文本钩子"
         }
@@ -37,7 +37,16 @@ final class OverlayState {
     var glossary: [String: String] = [:]
     var mode: TextSourceMode = .manual
     var lines: [TranslationSession.Line] = []
-    var status: String = "把上方的框拖到游戏的文本框上，然后点“识别”。"
+    var status: String = "把上方的框拖到游戏的文本框上，然后点“识别”。" {
+        didSet { statusIsError = false }
+    }
+    /// 错误在工具条上标红并带图标，普通提示用灰字。
+    private(set) var statusIsError = false
+
+    func showError(_ message: String) {
+        status = message
+        statusIsError = true
+    }
     var isWorking = false
     var showHistory = false
     /// 字幕条下面是否显示原文（游戏画面里已经有原文，默认不显示）。
@@ -163,7 +172,7 @@ final class TranslatorOverlayController {
     private func rebuildSession() {
         guard let translator = model.makeTranslator() else {
             session = nil
-            state.status = "还没有配置翻译服务：打开 设置 → 翻译。"
+            state.showError("还没有配置翻译服务：打开 设置 → 翻译。")
             return
         }
         if let session, sessionGameID == gameID {
@@ -268,13 +277,13 @@ final class TranslatorOverlayController {
         stopFollowing()
         state.hookGameID = nil
         setMode(.manual)
-        state.status = "文本钩子没能启动：\(message)。可以改用 OCR。"
+        state.showError("文本钩子没能启动：\(message)。可以改用 OCR。")
     }
 
     func handleHook(_ event: HookEvent?, gameID: UUID) {
         guard state.hookGameID == gameID else { return }
         func info(_ text: String) {
-            // 已经有译文时不打扰；状态栏里的文字在有译文时是红色的错误提示。
+            // 已经有译文时不打扰。
             if state.lines.isEmpty { state.status = text }
         }
         switch event {
@@ -286,7 +295,7 @@ final class TranslatorOverlayController {
         case .info(level: 4, let engine):
             info("识别到 \(engine) 引擎，推进一句对白试试。")
         case .hookInserted(let code) where manualHookCodes.contains(Self.codeKey(code)):
-            state.status = "特殊码已插入：\(code)。推进一句对白，再到“文本来源”里选新出现的那一路。"
+            state.status = "特殊码已插入：\(code)。推进一句对白，再到“文本来源”里选新出现的那个。"
         case .info, .hookInserted:
             break
         case .thread(let thread):
@@ -302,11 +311,11 @@ final class TranslatorOverlayController {
         case .detached:
             info("游戏和文本钩子断开了。")
         case .error(let message):
-            state.status = message
+            state.showError(message)
         }
     }
 
-    /// 手动指定翻译哪一路并按游戏记住；nil 表示回到自动。
+    /// 手动指定翻译哪个文本来源并按游戏记住；nil 表示回到自动。
     func pinHookThread(_ id: String?) {
         let key = selector.pin(id)
         if let gameID = state.hookGameID { model.rememberHookThread(key, for: gameID) }
@@ -329,7 +338,7 @@ final class TranslatorOverlayController {
         NSApp.activate()
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         guard let code = HookCode.normalize(field.stringValue) else {
-            state.status = "特殊码不能为空，也不能有多行。"
+            state.showError("特殊码不能为空，也不能有多行。")
             return
         }
         manualHookCodes.insert(Self.codeKey(code))
@@ -403,7 +412,7 @@ final class TranslatorOverlayController {
             return try await ScreenTextCapture.recognizeText(in: rect, languages: state.locale.ocrLanguages)
         } catch {
             if !quiet || error is ScreenTextCapture.CaptureError {
-                state.status = error.localizedDescription
+                state.showError(error.localizedDescription)
             }
             if error is ScreenTextCapture.CaptureError { setMode(.manual) }
             return nil
@@ -412,7 +421,7 @@ final class TranslatorOverlayController {
 
     private func translate(_ text: String) async {
         guard let session else {
-            state.status = "还没有配置翻译服务：打开 设置 → 翻译。"
+            state.showError("还没有配置翻译服务：打开 设置 → 翻译。")
             return
         }
         state.isWorking = true
@@ -434,10 +443,14 @@ final class TranslatorOverlayController {
             }
             if line != nil {
                 state.lines = await session.lines
-                state.status = await session.storeError.map { "翻译记录没能保存：\($0)" } ?? ""
+                if let storeError = await session.storeError {
+                    state.showError("翻译记录没能保存：\(storeError)")
+                } else {
+                    state.status = ""
+                }
             }
         } catch {
-            state.status = error.localizedDescription
+            state.showError(error.localizedDescription)
         }
     }
 
@@ -529,12 +542,13 @@ struct OverlayView: View {
 
     private var controls: some View {
         HStack(spacing: 10) {
-            Picker("", selection: Binding(get: { state.mode }, set: { controller.setMode($0) })) {
+            Picker("文本来源方式", selection: Binding(get: { state.mode }, set: { controller.setMode($0) })) {
                 ForEach(state.availableModes) { Text($0.title).tag($0) }
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.menu)
             .labelsHidden()
-            .frame(width: state.hookGameID == nil ? 220 : 300)
+            .fixedSize()
+            .help("从哪里拿到要翻译的文本")
 
             if subtitle {
                 threadMenu
@@ -551,18 +565,29 @@ struct OverlayView: View {
                 .toggleStyle(.button)
             if !subtitle {
                 Button { controller.toggleLock() } label: {
-                    Image(systemName: state.isLocked ? "lock.fill" : "lock.open")
+                    Label(state.isLocked ? "解锁" : "锁定", systemImage: state.isLocked ? "lock.fill" : "lock.open").labelStyle(.iconOnly)
                 }
                 .help("锁定后点击穿透到游戏（\(GlobalHotKeys.Combo.toggleLock.display)）")
             }
             if state.isWorking { ProgressView().controlSize(.small) }
             if !state.status.isEmpty && !state.lines.isEmpty {
-                Text(state.status).font(.caption).foregroundStyle(.red).lineLimit(1)
+                Group {
+                    if state.statusIsError {
+                        Label(state.status, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                    } else {
+                        Text(state.status).foregroundStyle(.secondary)
+                    }
+                }
+                .font(.caption).lineLimit(1)
+                .help(state.status)
+                .layoutPriority(-1)
             }
-            Spacer()
+            Spacer(minLength: 0)
             Text(state.gameTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Button { controller.close() } label: { Image(systemName: "xmark") }
+                .layoutPriority(-2)
+            Button { controller.close() } label: { Label("关闭", systemImage: "xmark").labelStyle(.iconOnly) }
                 .buttonStyle(.borderless)
+                .help("关闭翻译悬浮窗")
         }
     }
 
@@ -573,7 +598,7 @@ struct OverlayView: View {
                 if state.pinnedHookThread == nil { Label("自动选择", systemImage: "checkmark") } else { Text("自动选择") }
             }
             if state.waitingForRememberedThread {
-                Text("已记住上次指定的那一路，出现后自动切过去")
+                Text("已记住上次指定的文本来源，出现后自动切过去")
             }
             if !state.hookThreads.isEmpty { Divider() }
             ForEach(state.hookThreads) { t in
@@ -591,7 +616,7 @@ struct OverlayView: View {
             Text(state.pinnedHookThread == nil ? "自动选择" : "手动指定")
         }
         .fixedSize()
-        .help("游戏有好几路文本时（对白、人名、选项），选择翻译哪一路；手动选的会按游戏记住。钩不到对白时可以输入特殊码")
+        .help("选择翻译哪个文本来源（对白、人名、选项）；手动选的会按游戏记住。钩不到对白时可以输入特殊码")
     }
 }
 

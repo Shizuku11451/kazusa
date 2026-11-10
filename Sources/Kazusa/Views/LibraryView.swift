@@ -41,6 +41,20 @@ struct LibraryView: View {
                 GameSettingsView(game: binding)
             }
         }
+        .confirmationDialog("从游戏库移除“\(pendingRemoval?.title ?? "")”？",
+                            isPresented: Binding(get: { pendingRemoval != nil }, set: { if !$0 { model.confirmingRemoval = nil } }),
+                            presenting: pendingRemoval) { game in
+            Button("移除", role: .destructive) { model.remove(game) }
+        } message: { _ in
+            Text("自定义封面、翻译记录、术语表和游玩时长会一起删除。游戏文件、存档和存档备份不受影响。")
+        }
+        .confirmationDialog("停止“\(pendingStop?.title ?? "")”？",
+                            isPresented: Binding(get: { pendingStop != nil }, set: { if !$0 { model.confirmingStop = nil } }),
+                            presenting: pendingStop) { game in
+            Button("停止", role: .destructive) { model.stop(game) }
+        } message: { _ in
+            Text("会直接结束游戏，没存档的进度会丢失。")
+        }
         .alert(model.alert?.title ?? "", isPresented: alertShown, presenting: model.alert) { item in
             if let tab = item.settingsTab {
                 Button("去设置") {
@@ -55,6 +69,9 @@ struct LibraryView: View {
             Text(item.message)
         }
     }
+
+    private var pendingRemoval: Game? { model.confirmingRemoval.flatMap { r in model.games.first { $0.id == r.id } } }
+    private var pendingStop: Game? { model.confirmingStop.flatMap { r in model.games.first { $0.id == r.id } } }
 
     private var alertShown: Binding<Bool> {
         Binding(get: { model.alert != nil }, set: { if !$0 { model.alert = nil } })
@@ -73,19 +90,19 @@ struct LibraryView: View {
                                      isSelected: game.id == model.selectedGameID,
                                      isRunning: model.runningGameIDs.contains(game.id),
                                      onLaunch: { model.launch(game) })
-                                .onTapGesture { model.open(game.id) }
+                                .activatable(game.title) { model.open(game.id) }
                                 .contextMenu {
                                     Button("启动") { model.launch(game) }
-                                    Button("设置…") { model.gameSettings = .init(id: game.id) }
+                                    Button("游戏设置…") { model.gameSettings = .init(id: game.id) }
                                     Button("在 Finder 中显示") { NSWorkspace.shared.activateFileViewerSelecting([game.executableURL]) }
                                     Divider()
-                                    Button("搜索封面…") { model.coverSearch = .init(id: game.id) }
+                                    Button("在 VNDB 上搜索封面…") { model.coverSearch = .init(id: game.id) }
                                     Button("选择封面图片…") { model.chooseCoverFile(for: game.id) }
                                     if model.coverImages[game.id] != nil {
                                         Button("移除封面") { model.removeCover(for: game.id) }
                                     }
                                     Divider()
-                                    Button("从游戏库移除", role: .destructive) { model.remove(game) }
+                                    Button("从游戏库移除…", role: .destructive) { model.confirmingRemoval = .init(id: game.id) }
                                 }
                         }
                     }
@@ -108,9 +125,11 @@ struct LibraryView: View {
         .toolbar {
             ToolbarItemGroup {
                 Button { model.presentImportPanel() } label: { Label("添加游戏", systemImage: "plus") }
+                    .help("添加游戏文件夹或 .exe（⌘O）")
                 Button { model.overlay.show(game: model.selectedGame) } label: {
                     Label("翻译悬浮窗", systemImage: "character.bubble")
                 }
+                .help("打开翻译悬浮窗（⇧⌘T）")
                 Button { openSettings() } label: { Label("设置", systemImage: "gearshape") }
                     .help("运行环境、翻译服务（LLM）等全局设置")
             }
@@ -137,6 +156,7 @@ struct GameCard: View {
     let onLaunch: () -> Void
 
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -177,7 +197,7 @@ struct GameCard: View {
                         }
                     }
                     .shadow(color: .black.opacity(isHovered ? 0.3 : 0.15), radius: isHovered ? 10 : 4, y: isHovered ? 6 : 2)
-                    .scaleEffect(isHovered ? 1.02 : 1)
+                    .scaleEffect(isHovered && !reduceMotion ? 1.02 : 1)
                     .animation(.easeOut(duration: 0.15), value: isHovered)
                 if isRunning {
                     Label("运行中", systemImage: "play.fill")
@@ -218,5 +238,22 @@ struct Badge: View {
             .truncationMode(.tail)
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(.quaternary, in: Capsule())
+    }
+}
+
+extension View {
+    /// 点一下，或键盘聚焦后按 Return / 空格执行，VoiceOver 当按钮读。
+    /// 卡片里还套着别的按钮（快速启动、显示成人封面），所以没直接用 Button。
+    func activatable(_ label: String, action: @escaping () -> Void) -> some View {
+        onTapGesture(perform: action)
+            .focusable(interactions: .activate)
+            .onKeyPress(keys: [.return, .space]) { _ in
+                action()
+                return .handled
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { action() }
     }
 }

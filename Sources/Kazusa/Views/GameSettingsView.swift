@@ -20,6 +20,10 @@ struct GameSettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            Text("“\(game.title)”的设置")
+                .font(.headline)
+                .lineLimit(1)
+                .padding(.top, 14)
             Form {
                 Section {
                     TextField("标题", text: $game.title)
@@ -49,10 +53,13 @@ struct GameSettingsView: View {
                         Toggle(isOn: $game.usesExclusivePrefix) {
                             Text("使用独立前缀")
                             Text(game.usesExclusivePrefix
-                                 ? "这个游戏有自己的 Wine 环境（\(game.prefixName)），装的东西、改的设置不影响别的游戏。"
+                                 ? "这个游戏有自己的前缀（\(game.prefixName)），装的东西、改的设置不影响别的游戏。"
                                  : "现在和同区域的游戏共用“\(game.prefixName)”。打开后从它复制一份给这个游戏单独用，不占额外空间。存在前缀里的存档不会跟着搬过去。")
                         }
                     }
+                }
+
+                Section("高级") {
                     TextField("启动参数", text: $argumentsText)
                     LabeledContent("引擎") {
                         VStack(alignment: .trailing, spacing: 2) {
@@ -93,7 +100,7 @@ struct GameSettingsView: View {
                         .disabled(!game.translation.enabled)
                     } else if NativeEngines.providesText(game.engine) {
                         Toggle(isOn: $game.translation.usesTextHook) {
-                            Text("从引擎直接读取台词")
+                            Text("用文本钩子读取游戏文本")
                             Text("原生引擎把显示的每句话直接交给 Kazusa，比截图识别准确、不用对准文本框。关掉改用 OCR。")
                         }
                         .disabled(!game.translation.enabled)
@@ -104,7 +111,7 @@ struct GameSettingsView: View {
                                 Button("改回自动") { game.translation.hookThread = nil }
                             } label: {
                                 Text("文本来源")
-                                Text("记着在字幕条里手动指定的那一路，每次启动自动选它。")
+                                Text("记着在字幕条里手动指定的文本来源，每次启动自动选它。")
                             }
                         }
                         if let codes = game.translation.hookCodes, !codes.isEmpty {
