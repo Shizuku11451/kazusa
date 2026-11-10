@@ -38,5 +38,5 @@ ThirdParty/wow64cpu-rosetta/build.sh 11.21 ~/Library/Application\ Support/Kazusa
 
 - 补丁来自 [kic99/TEW_IX_on_Mac](https://github.com/kic99/TEW_IX_on_Mac) 的 `wow64cpu-rosetta-fix`（[Philsmith1/wmma6-on-mac](https://github.com/Philsmith1/wmma6-on-mac) 用的也是同一个补丁）。它的思路沿用 Sikarugir 的 Wine 分支里的 `syscall_32to64_rosetta2_workaround`。
 - `build.sh` 改编自上面仓库的同名脚本。
-- `prebuilt/wine-11.21/wow64cpu.dll` 由 Wine 11.21 的源码打上这个补丁后编译。
-- Wine（包括 `dlls/wow64cpu/cpu.c`）以 **GNU LGPL 2.1 或更高版本**发布，见 `COPYING.LIB`。这个目录里的补丁和预编译 DLL 同样遵循 LGPL；按 LGPL 的要求，对应源码就是 Wine 11.21 的源码加上这里的补丁。DLL 作为独立文件随 Kazusa 分发，Kazusa 其余部分仍是 GPL-3.0-or-later。
+- `prebuilt/wine-<版本>/wow64cpu.dll`（目前有 11.0、11.20、11.21）由对应版本的 Wine 源码打上这个补丁后编译，导入库取自同版本 Gcenx 构建里的 `ntdll.dll` / `wow64.dll`。11.21 用上面那款游戏实测过；11.0、11.20 用 32 位 `cmd.exe` 连续启动 15 次验证过。
+- Wine（包括 `dlls/wow64cpu/cpu.c`）以 **GNU LGPL 2.1 或更高版本**发布，见 `COPYING.LIB`。这个目录里的补丁和预编译 DLL 同样遵循 LGPL；按 LGPL 的要求，对应源码就是同版本 Wine 的源码加上这里的补丁。DLL 作为独立文件随 Kazusa 分发，Kazusa 其余部分仍是 GPL-3.0-or-later。

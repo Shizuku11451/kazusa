@@ -24,9 +24,12 @@ mkdir -p "$WORK" "$OUT"
 
 # 1. Wine 源码：只需要头文件和 dlls/wow64cpu
 MAJOR=${VER%%.*}
+MINOR=${VER#*.}; MINOR=${MINOR%%.*}
+# 稳定版（11.0、11.0.1…）的源码在 11.0/ 下，开发版在 11.x/ 下
+if [ "$MINOR" = 0 ]; then DIR="$MAJOR.0"; else DIR="$MAJOR.x"; fi
 SRC="$WORK/wine-$VER"
 if [ ! -d "$SRC/include" ]; then
-    curl -fL -o "$WORK/wine.tar.xz" "https://dl.winehq.org/wine/source/$MAJOR.x/wine-$VER.tar.xz"
+    curl -fL -o "$WORK/wine.tar.xz" "https://dl.winehq.org/wine/source/$DIR/wine-$VER.tar.xz"
     tar -xJf "$WORK/wine.tar.xz" -C "$WORK" "wine-$VER/include" "wine-$VER/dlls/wow64cpu"
     rm "$WORK/wine.tar.xz"
 fi

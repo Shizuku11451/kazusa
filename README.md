@@ -44,7 +44,7 @@ swift run kazusa-cli        # 开发用命令行：安装运行时、识别游�
 1. **Rosetta 2**（Apple 芯片）：`softwareupdate --install-rosetta --agree-to-license`
 2. **Wine**：从 [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds/releases) 下载 `wine-staging-*-osx64.tar.xz`，在 设置 → 运行环境 → 从压缩包安装（或 `swift run kazusa-cli install-runtime <压缩包>`）。
    > Homebrew 的 `wine-stable` / `wine@staging` cask 因为过不了 Gatekeeper 检查，已在 2026-09-01 被禁用。
-   > 较新的 macOS（已确认 27.x）上 Rosetta 处理 WoW64 模式切换有 bug，32 位游戏会随机崩溃或卡死。Kazusa 启动游戏时会自动给托管的运行时和前缀换上修复版 `wow64cpu.dll`（目前预编译了 Wine 11.21 的），详见 [ThirdParty/wow64cpu-rosetta](ThirdParty/wow64cpu-rosetta/README.md)。
+   > 较新的 macOS（已确认 27.x）上 Rosetta 处理 WoW64 模式切换有 bug，32 位游戏会随机崩溃或卡死。Kazusa 启动游戏时会自动给托管的运行时和前缀换上修复版 `wow64cpu.dll`（目前预编译了 Wine 11.0、11.20、11.21），详见 [ThirdParty/wow64cpu-rosetta](ThirdParty/wow64cpu-rosetta/README.md)。
    > NScripter 游戏默认用打包的 ONScripter 运行，不需要前两步。
 3. 用 OCR 翻译时（文本钩子不需要）需要**屏幕录制权限**：系统设置 → 隐私与安全性 → 屏幕与系统录音
 
@@ -87,7 +87,7 @@ HookHost/                  # kazusa-hook32/64.exe：在 Wine 里加载 LunaHost�
 - [x] 流式翻译输出
 - [x] 翻译结果持久化（按游戏记下翻过的句子，再遇到不再调用 LLM；历史跨启动保留）
 - [x] 修复 macOS 27 上 Rosetta 导致 32 位游戏随机崩溃 / 卡死（打补丁的 `wow64cpu.dll`）
-- [ ] 为更多 Wine 版本预编译 `wow64cpu.dll`（目前只有 11.21）
+- [x] 为更多 Wine 版本预编译 `wow64cpu.dll`：11.0（stable）、11.20、11.21（devel / staging）；别的版本可以用 `build.sh` 自己编译
 - [x] 应用图标、通用二进制（Apple 芯片 + Intel）打包
 - [x] 发布第一个 Release（v0.1.0）
 
