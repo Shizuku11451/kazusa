@@ -611,7 +611,16 @@ final class AppModel {
         let host = TextHookHost()
         do {
             try host.start(game: game, runtime: context.runtime, environment: context.environment) { [weak self] event in
-                Task { @MainActor in self?.overlay.handleHook(event, gameID: game.id) }
+                Task { @MainActor in
+                    guard let self else { return }
+                    // 连上之后把这个游戏记下的特殊码再插一遍（读最新的，悬浮窗里可能刚加过）。
+                    if case .ready = event {
+                        for code in self.games.first(where: { $0.id == game.id })?.translation.hookCodes ?? [] {
+                            host.insertHook(code)
+                        }
+                    }
+                    self.overlay.handleHook(event, gameID: game.id)
+                }
             }
             hookHosts[game.id] = host
         } catch {
@@ -621,6 +630,29 @@ final class AppModel {
 
     private func stopTextHook(for id: UUID) {
         hookHosts.removeValue(forKey: id)?.stop()
+    }
+
+    /// 手动插入特殊码并记到游戏设置里，以后每次连上游戏都会自动插入。返回是否已发给正在运行的钩子。
+    @discardableResult
+    func insertHookCode(_ code: String, for id: UUID) -> Bool {
+        if let i = games.firstIndex(where: { $0.id == id }) {
+            var codes = games[i].translation.hookCodes ?? []
+            if !codes.contains(code) {
+                codes.append(code)
+                games[i].translation.hookCodes = codes
+                saveGames()
+            }
+        }
+        guard let host = hookHosts[id] else { return false }
+        host.insertHook(code)
+        return true
+    }
+
+    /// 记住字幕条里手动指定的那一路；nil 表示回到自动选择。
+    func rememberHookThread(_ key: HookThreadKey?, for id: UUID) {
+        guard let i = games.firstIndex(where: { $0.id == id }), games[i].translation.hookThread != key else { return }
+        games[i].translation.hookThread = key
+        saveGames()
     }
 
     // MARK: - 翻译

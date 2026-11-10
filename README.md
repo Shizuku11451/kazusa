@@ -77,7 +77,7 @@ HookHost/                  # kazusa-hook32/64.exe：在 Wine 里加载 LunaHost�
   - [ ] 原生后端的文本输出（LunaHook 只能注入 Wine 里的进程，原生运行的游戏目前只能用识图翻译）
   - 暂缓：System4 走 xsystem4（只覆盖 AliceSoft，新作支持不全）
 - [x] **文本钩子**：LunaHook 注入 + 自动选对白线程 + 字幕条
-- [ ] 文本钩子：按游戏记住手动指定的那一路、手动输入特殊码、字幕条跟随游戏窗口
+- [x] 文本钩子：按游戏记住手动指定的那一路、手动输入特殊码（每次启动自动插入）、字幕条跟随游戏窗口
 - [x] 视频解码：实测 Gcenx wine-staging 自带的 GStreamer 已能经 DirectShow / Media Foundation 解出 MPEG-1/2、WMV、H.264、MS-MPEG4、Theora，不需要再装 LAV；运行时缺 winegstreamer 或 GStreamer（OP/ED 必然黑屏）时，设置页和启动日志会提示
 - [x] 从 VNDB 拉取封面
 - [x] 从 VNDB 拉取简介、品牌等元数据

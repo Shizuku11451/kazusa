@@ -34,7 +34,7 @@ public enum HookText {
 ///
 /// 同一句话经常从好几路同时到达（例如一路带注音标记、一路已经排好版），还有人名、菜单等其他路。
 /// 默认按累计的有效字数选：对白那一路很快就会远远超过人名和菜单。
-/// 用户也可以手动指定一路（`pinnedThreadID`）。
+/// 用户也可以手动指定一路（`pinnedThreadID`）；按游戏记住的那一路（`remembered`）出现时自动指定它。
 public struct HookThreadSelector: Sendable {
     public struct ThreadState: Equatable, Sendable, Identifiable {
         public var thread: HookThread
@@ -46,9 +46,21 @@ public struct HookThreadSelector: Sendable {
 
     public private(set) var threads: [ThreadState] = []
     public var pinnedThreadID: String?
+    /// 上次手动指定的那一路。同一个游戏每次启动线程 ID 都不一样，靠它认出来。
+    public var remembered: HookThreadKey?
     private var lastEmitted: String?
 
-    public init() {}
+    public init(remembered: HookThreadKey? = nil) {
+        self.remembered = remembered
+    }
+
+    /// 手动指定一路并记住它，nil 表示回到自动选择（同时忘掉记住的）。返回要保存的值。
+    @discardableResult
+    public mutating func pin(_ id: String?) -> HookThreadKey? {
+        pinnedThreadID = id
+        remembered = id.flatMap { id in threads.first { $0.id == id } }.flatMap { HookThreadKey($0.thread) }
+        return remembered
+    }
 
     /// 当前用来翻译的那一路。
     public var activeThreadID: String? {
@@ -65,6 +77,9 @@ public struct HookThreadSelector: Sendable {
             threads[i].thread = thread
         } else {
             threads.append(ThreadState(thread: thread))
+        }
+        if pinnedThreadID == nil, let remembered, HookThreadKey(thread) == remembered {
+            pinnedThreadID = thread.id
         }
     }
 

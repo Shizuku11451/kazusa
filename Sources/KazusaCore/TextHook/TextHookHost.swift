@@ -60,7 +60,7 @@ public final class TextHookHost: @unchecked Sendable {
     }
 
     /// Wine 里的 unix 路径：`/a/b` → `Z:\a\b`。
-    static func windowsPath(_ url: URL) -> String {
+    public static func windowsPath(_ url: URL) -> String {
         "Z:" + url.standardizedFileURL.path.replacingOccurrences(of: "/", with: "\\")
     }
 

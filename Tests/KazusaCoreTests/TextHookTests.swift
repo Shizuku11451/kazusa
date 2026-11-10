@@ -82,6 +82,64 @@ import Testing
         #expect(s.pinnedThreadID == nil)
     }
 
+    @Test func threadKeyIgnoresPidAndAddress() {
+        let a = HookThread(id: "1234:4f7b0:41a2c3:0", hookcode: "HS-1C@44F7B0:WA2.exe", name: "")
+        let b = HookThread(id: "5678:9a7b0:41a2c3:0", hookcode: "HS-1C@44F7B0:WA2.exe", name: "")
+        #expect(HookThreadKey(a) == HookThreadKey(b))
+        #expect(HookThreadKey(a) == HookThreadKey(hookcode: "HS-1C@44F7B0:WA2.exe", ctx: "41a2c3", ctx2: "0"))
+        #expect(HookThreadKey(HookThread(id: "1234:4f7b0:41a2c4:0", hookcode: "HS-1C@44F7B0:WA2.exe", name: "")) != HookThreadKey(a))
+        #expect(HookThreadKey(HookThread(id: "dialogue", hookcode: "H", name: "")) == nil)
+        #expect(HookThreadKey(HookThread(id: "1:2:3:4", hookcode: "", name: "")) == nil)
+    }
+
+    @Test func remembersPinnedThreadAcrossLaunches() {
+        // 第一次：手动指定人名那一路
+        var first = HookThreadSelector()
+        first.register(HookThread(id: "100:a:1:0", hookcode: "HS@A", name: "BGI"))
+        first.register(HookThread(id: "100:a:2:0", hookcode: "HS@A", name: "BGI"))
+        let saved = first.pin("100:a:2:0")
+        #expect(saved == HookThreadKey(hookcode: "HS@A", ctx: "2", ctx2: "0"))
+
+        // 第二次启动：进程号变了，同一路出现时自动指定
+        var second = HookThreadSelector(remembered: saved)
+        second.register(HookThread(id: "200:a:1:0", hookcode: "HS@A", name: "BGI"))
+        #expect(second.pinnedThreadID == nil)
+        second.register(HookThread(id: "200:a:2:0", hookcode: "HS@A", name: "BGI"))
+        #expect(second.pinnedThreadID == "200:a:2:0")
+        #expect(second.accept(threadID: "200:a:1:0", text: "とても長い長い文章がここに来る") == nil)
+        #expect(second.accept(threadID: "200:a:2:0", text: "かずさ") == "かずさ")
+
+        // 线程没了再出现，还认得
+        second.remove(id: "200:a:2:0")
+        #expect(second.pinnedThreadID == nil)
+        second.register(HookThread(id: "200:a:2:0", hookcode: "HS@A", name: "BGI"))
+        #expect(second.pinnedThreadID == "200:a:2:0")
+
+        // 改回自动就忘掉
+        #expect(second.pin(nil) == nil)
+        #expect(second.remembered == nil)
+    }
+
+    @Test func normalizesHookCodes() {
+        #expect(HookCode.normalize("  /HS-1C@44F7B0:WA2.exe \n") == "/HS-1C@44F7B0:WA2.exe")
+        #expect(HookCode.normalize("HS-8@0:My Game.exe") == "HS-8@0:My Game.exe")
+        #expect(HookCode.normalize("   ") == nil)
+        #expect(HookCode.normalize("HS@1\nHS@2") == nil)
+    }
+
+    @Test func findsWineProcessByArgv0() {
+        let exe = URL(fileURLWithPath: "/Users/me/Downloads/WHITE ALBUM2/WA2.exe")
+        let candidates: [(pid_t, String)] = [
+            (10, #"C:\windows\system32\explorer.exe"#),
+            (11, #"Z:\Users\me\Other\WA2.exe"#),
+            (12, #"Z:\Users\me\Downloads\WHITE ALBUM2\wa2.EXE"#),
+        ]
+        #expect(WineProcess.match(candidates, executable: exe) == [12])
+        // 路径对不上（比如经过了符号链接）时按文件名找
+        #expect(WineProcess.match(Array(candidates.prefix(2)), executable: exe) == [11])
+        #expect(WineProcess.match(Array(candidates.prefix(1)), executable: exe).isEmpty)
+    }
+
     @Test func windowsPath() {
         #expect(TextHookHost.windowsPath(URL(fileURLWithPath: "/Applications/Kazusa.app/Contents/Resources/texthook/x86"))
             == #"Z:\Applications\Kazusa.app\Contents\Resources\texthook\x86"#)

@@ -63,11 +63,18 @@ public struct GameTranslationSettings: Codable, Hashable, Sendable {
     public var glossary: [String: String]
     /// 用文本钩子直接读游戏文本（只对 Wine 游戏有效）。nil 表示默认开启；关掉则回到截图 OCR。
     public var textHook: Bool?
+    /// 在字幕条里手动指定过的那一路文本，下次启动自动选它。nil 表示自动选择。
+    public var hookThread: HookThreadKey?
+    /// 手动输入的特殊码，每次连上游戏后自动插入。
+    public var hookCodes: [String]?
 
-    public init(enabled: Bool = false, glossary: [String: String] = [:], textHook: Bool? = nil) {
+    public init(enabled: Bool = false, glossary: [String: String] = [:], textHook: Bool? = nil,
+                hookThread: HookThreadKey? = nil, hookCodes: [String]? = nil) {
         self.enabled = enabled
         self.glossary = glossary
         self.textHook = textHook
+        self.hookThread = hookThread
+        self.hookCodes = hookCodes
     }
 
     public var usesTextHook: Bool {

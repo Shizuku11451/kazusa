@@ -91,6 +91,33 @@ struct GameSettingsView: View {
                             Text("直接从游戏进程读出台词，比截图识别准确、不用对准文本框。个别游戏钩不到时关掉，改用 OCR。")
                         }
                         .disabled(!game.translation.enabled)
+                        if game.translation.hookThread != nil {
+                            LabeledContent {
+                                Button("改回自动") { game.translation.hookThread = nil }
+                            } label: {
+                                Text("文本来源")
+                                Text("记着在字幕条里手动指定的那一路，每次启动自动选它。")
+                            }
+                        }
+                        if let codes = game.translation.hookCodes, !codes.isEmpty {
+                            LabeledContent {
+                                VStack(alignment: .trailing, spacing: 4) {
+                                    ForEach(codes, id: \.self) { code in
+                                        HStack {
+                                            Text(code).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                                            Button {
+                                                game.translation.hookCodes = codes.filter { $0 != code }.nilIfEmpty
+                                            } label: { Image(systemName: "minus.circle") }
+                                            .buttonStyle(.borderless)
+                                            .help("删除这条特殊码")
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Text("特殊码")
+                                Text("每次连上游戏后自动插入。在字幕条的“文本来源”菜单里添加。")
+                            }
+                        }
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("术语表（每行一条：原文=译文）").font(.caption).foregroundStyle(.secondary)
@@ -215,4 +242,8 @@ struct GameSettingsView: View {
         }
         if glossary != game.translation.glossary { game.translation.glossary = glossary }
     }
+}
+
+private extension Array {
+    var nilIfEmpty: Self? { isEmpty ? nil : self }
 }

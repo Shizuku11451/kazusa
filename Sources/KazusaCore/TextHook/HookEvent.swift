@@ -18,6 +18,37 @@ public struct HookThread: Equatable, Sendable, Identifiable {
     }
 }
 
+/// 按游戏记住的那一路文本。线程 ID 里的进程号每次启动都会变，钩子地址由特殊码决定，
+/// 所以只记特殊码和两个上下文值（通常是调用位置，exe 不重定位时每次都一样）。
+public struct HookThreadKey: Codable, Hashable, Sendable {
+    public var hookcode: String
+    public var ctx: String
+    public var ctx2: String
+
+    public init(hookcode: String, ctx: String, ctx2: String) {
+        self.hookcode = hookcode
+        self.ctx = ctx
+        self.ctx2 = ctx2
+    }
+
+    /// 线程 ID 是 `pid:addr:ctx:ctx2`；格式不对或没有特殊码时返回 nil。
+    public init?(_ thread: HookThread) {
+        let parts = thread.id.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 4, !thread.hookcode.isEmpty else { return nil }
+        self.init(hookcode: thread.hookcode, ctx: String(parts[2]), ctx2: String(parts[3]))
+    }
+}
+
+/// 用户手动输入的特殊码（H 码 / R 码），例如 `/HS-1C@44F7B0:game.exe`。
+public enum HookCode {
+    /// 去掉首尾空白；空的或者有多行的返回 nil。格式交给 LunaHook 判断。
+    public static func normalize(_ input: String) -> String? {
+        let code = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty, !code.contains(where: \.isNewline) else { return nil }
+        return code
+    }
+}
+
 /// `kazusa-hook.exe` 输出的一行事件，见 HookHost/kazusa-hook.c。
 public enum HookEvent: Equatable, Sendable {
     /// 已和游戏里的钩子建立连接。

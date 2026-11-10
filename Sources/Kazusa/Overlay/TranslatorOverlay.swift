@@ -55,6 +55,8 @@ final class OverlayState {
     var hookThreads: [HookThreadSelector.ThreadState] = []
     var activeHookThread: String?
     var pinnedHookThread: String?
+    /// 记着上次手动指定的那一路，但这次还没出现。
+    var waitingForRememberedThread = false
 
     var availableModes: [TextSourceMode] {
         TextSourceMode.allCases.filter { $0 != .hook || hookGameID != nil }
@@ -83,6 +85,16 @@ final class TranslatorOverlayController {
     private var gameID: UUID?
 
     private var selector = HookThreadSelector()
+    /// 字幕条跟着游戏窗口走。
+    private var windowTracker: GameWindowTracker?
+    /// 字幕条用的是默认位置（这个游戏还没存过）：找到游戏窗口后挪到窗口底部。
+    private var subtitleAtDefaultPosition = false
+    /// 用户输入过的特殊码（比较用的形式），只对这些显示“已插入”。LunaHook 自动下的钩子也会报插入。
+    private var manualHookCodes: Set<String> = []
+
+    private static func codeKey(_ code: String) -> String {
+        (code.hasPrefix("/") ? String(code.dropFirst()) : code).uppercased()
+    }
     /// 翻译进行中时到达的最新一句；翻完当前这句只翻它，中间跳过的不再翻。
     private var queuedText: String?
     private var draining = false
@@ -113,8 +125,12 @@ final class TranslatorOverlayController {
         let name = "KazusaOverlay-\(gameID?.uuidString ?? "default")\(subtitle ? "-subtitle" : "")"
         guard panel.frameAutosaveName != name else { return }
         panel.setFrameAutosaveName("")
-        if !panel.setFrameUsingName(name) {
-            if subtitle, let screen = NSScreen.main?.visibleFrame {
+        let restored = panel.setFrameUsingName(name)
+        if subtitle { subtitleAtDefaultPosition = !restored }
+        if !restored {
+            if subtitle, let gameFrame = windowTracker?.frame {
+                placeSubtitle(in: gameFrame)
+            } else if subtitle, let screen = NSScreen.main?.visibleFrame {
                 let width = min(960, screen.width - 80)
                 panel.setFrame(NSRect(x: screen.midX - width / 2, y: screen.minY + 40, width: width, height: 150), display: true)
             } else if !subtitle {
@@ -233,16 +249,19 @@ final class TranslatorOverlayController {
 
     /// 游戏刚用 Wine 启动、钩子程序即将运行：切到字幕条。
     func beginHook(game: Game) {
-        selector = HookThreadSelector()
+        selector = HookThreadSelector(remembered: game.translation.hookThread)
+        manualHookCodes = Set((game.translation.hookCodes ?? []).map(Self.codeKey))
         queuedText = nil
         state.hookGameID = game.id
         syncThreads()
+        startFollowing(game)
         show(game: game)
         setMode(.hook)
         state.status = "正在连接游戏…"
     }
 
     func hookFailed(_ message: String) {
+        stopFollowing()
         state.hookGameID = nil
         setMode(.manual)
         state.status = "文本钩子没能启动：\(message)。可以改用 OCR。"
@@ -256,11 +275,14 @@ final class TranslatorOverlayController {
         }
         switch event {
         case nil:
+            stopFollowing()
             info("文本钩子已退出。")
         case .ready:
             info("已连接，推进一句对白试试。")
         case .info(level: 4, let engine):
             info("识别到 \(engine) 引擎，推进一句对白试试。")
+        case .hookInserted(let code) where manualHookCodes.contains(Self.codeKey(code)):
+            state.status = "特殊码已插入：\(code)。推进一句对白，再到“文本来源”里选新出现的那一路。"
         case .info, .hookInserted:
             break
         case .thread(let thread):
@@ -280,16 +302,82 @@ final class TranslatorOverlayController {
         }
     }
 
-    /// 手动指定翻译哪一路；nil 表示自动。
+    /// 手动指定翻译哪一路并按游戏记住；nil 表示回到自动。
     func pinHookThread(_ id: String?) {
-        selector.pinnedThreadID = id
+        let key = selector.pin(id)
+        if let gameID = state.hookGameID { model.rememberHookThread(key, for: gameID) }
         syncThreads()
+    }
+
+    /// 弹窗输入特殊码（H 码 / R 码）。插入后记在游戏设置里，以后每次连上游戏自动插入。
+    func promptHookCode() {
+        guard let gameID = state.hookGameID else { return }
+        let alert = NSAlert()
+        alert.messageText = "输入特殊码"
+        alert.informativeText = "自动钩不到对白时，可以填网上找到的特殊码（H 码），例如 /HS-1C@44F7B0:WA2.exe。"
+            + "插入后会记在这个游戏的设置里，以后每次启动自动插入。"
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 340, height: 24))
+        field.placeholderString = "/HS-1C@44F7B0:game.exe"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "插入")
+        alert.addButton(withTitle: "取消")
+        alert.window.initialFirstResponder = field
+        NSApp.activate()
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard let code = HookCode.normalize(field.stringValue) else {
+            state.status = "特殊码不能为空，也不能有多行。"
+            return
+        }
+        manualHookCodes.insert(Self.codeKey(code))
+        state.status = model.insertHookCode(code, for: gameID)
+            ? "正在插入特殊码 \(code)…"
+            : "已记下特殊码，下次启动游戏时插入。"
     }
 
     private func syncThreads() {
         state.hookThreads = selector.threads.filter { $0.score > 0 }
         state.activeHookThread = selector.activeThreadID
         state.pinnedHookThread = selector.pinnedThreadID
+        state.waitingForRememberedThread = selector.remembered != nil && selector.pinnedThreadID == nil
+    }
+
+    // MARK: - 跟随游戏窗口
+
+    private func startFollowing(_ game: Game) {
+        stopFollowing()
+        let tracker = GameWindowTracker(executable: game.executableURL) { [weak self] old, new in
+            self?.gameWindowMoved(from: old, to: new)
+        }
+        windowTracker = tracker
+        tracker.start()
+    }
+
+    private func stopFollowing() {
+        windowTracker?.stop()
+        windowTracker = nil
+    }
+
+    /// 游戏窗口挪了（或改了大小、进出全屏）：字幕条保持和窗口底边中点的相对位置。
+    /// 用户自己拖过字幕条的话，拖出来的偏移也保留。
+    private func gameWindowMoved(from old: NSRect?, to new: NSRect) {
+        guard let panel, state.mode == .hook else { return }
+        guard let old else {
+            if subtitleAtDefaultPosition { placeSubtitle(in: new) }
+            return
+        }
+        var origin = panel.frame.origin
+        origin.x += new.midX - old.midX
+        origin.y += new.minY - old.minY
+        panel.setFrameOrigin(origin)
+    }
+
+    /// 默认位置：游戏窗口底部居中，宽度不超过窗口。
+    private func placeSubtitle(in game: NSRect) {
+        guard let panel else { return }
+        let width = min(960, max(360, game.width - 40))
+        let height = max(panel.frame.height, 150)
+        panel.setFrame(NSRect(x: game.midX - width / 2, y: game.minY + 20, width: width, height: height), display: true)
+        subtitleAtDefaultPosition = false
     }
 
     private func enqueue(_ text: String) {
@@ -480,6 +568,9 @@ struct OverlayView: View {
             Button { controller.pinHookThread(nil) } label: {
                 if state.pinnedHookThread == nil { Label("自动选择", systemImage: "checkmark") } else { Text("自动选择") }
             }
+            if state.waitingForRememberedThread {
+                Text("已记住上次指定的那一路，出现后自动切过去")
+            }
             if !state.hookThreads.isEmpty { Divider() }
             ForEach(state.hookThreads) { t in
                 let sample = t.lastText.count > 24 ? String(t.lastText.prefix(24)) + "…" : t.lastText
@@ -488,11 +579,13 @@ struct OverlayView: View {
                     if state.pinnedHookThread == t.id { Label(title, systemImage: "checkmark") } else { Text(title) }
                 }
             }
+            Divider()
+            Button("输入特殊码…") { controller.promptHookCode() }
         } label: {
             Text(state.pinnedHookThread == nil ? "自动选择" : "手动指定")
         }
         .fixedSize()
-        .help("游戏有好几路文本时（对白、人名、选项），选择翻译哪一路")
+        .help("游戏有好几路文本时（对白、人名、选项），选择翻译哪一路；手动选的会按游戏记住。钩不到对白时可以输入特殊码")
     }
 }
 
