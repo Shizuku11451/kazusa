@@ -42,8 +42,7 @@ final class AppModel {
     var settings: AppSettings {
         didSet {
             guard settings != oldValue else { return }
-            do { try settings.save(to: paths.settingsFile) } catch { report(error) }
-            overlay.settingsDidChange()
+            scheduleSave(settings: true)
         }
     }
 
@@ -87,6 +86,9 @@ final class AppModel {
         }
         refreshRuntimes()
         registerHotKeys()
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.flushPendingSaves() }
+        }
         loadCovers()
         for game in games { refreshNativeSupport(for: game) }
         for game in games where coverImages[game.id] == nil {
@@ -116,7 +118,7 @@ final class AppModel {
             set: { newValue in
                 guard let i = self.games.firstIndex(where: { $0.id == id }) else { return }
                 self.games[i] = newValue
-                self.saveGames()
+                self.scheduleSave(games: true)
             }
         )
     }
@@ -127,6 +129,37 @@ final class AppModel {
 
     func saveGames() {
         do { try store.save(games) } catch { report(error) }
+    }
+
+    @ObservationIgnored private var pendingSave: Task<Void, Never>?
+    @ObservationIgnored private var gamesDirty = false
+    @ObservationIgnored private var settingsDirty = false
+
+    /// 输入框每敲一个字都会改模型：内存里立刻生效，写盘合并到停手 0.4 秒后。
+    private func scheduleSave(games: Bool = false, settings: Bool = false) {
+        gamesDirty = gamesDirty || games
+        settingsDirty = settingsDirty || settings
+        pendingSave?.cancel()
+        pendingSave = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            self?.flushPendingSaves()
+        }
+    }
+
+    /// 把还没写的改动立刻写盘（退出程序时也会调用）。
+    func flushPendingSaves() {
+        pendingSave?.cancel()
+        pendingSave = nil
+        if gamesDirty {
+            gamesDirty = false
+            saveGames()
+        }
+        if settingsDirty {
+            settingsDirty = false
+            do { try settings.save(to: paths.settingsFile) } catch { report(error) }
+            overlay.settingsDidChange()
+        }
     }
 
     func presentImportPanel() {

@@ -192,7 +192,12 @@ struct TranslationSettingsView: View {
             .formStyle(.grouped)
         }
         .onAppear { selection = selection ?? model.settings.activeProvider?.id }
-        .onChange(of: selection, initial: true) { loadKey() }
+        .onChange(of: selection, initial: true) { old, new in
+            // 第一次调用时输入框还是空的，不能拿它去覆盖钥匙串。
+            if old != new { saveKey(for: old) }
+            loadKey()
+        }
+        .onDisappear { saveKey(for: selection) }
     }
 
     @ViewBuilder
@@ -205,8 +210,12 @@ struct TranslationSettingsView: View {
             TextField("Base URL", text: provider.baseURL)
             TextField("模型", text: provider.model)
             SecureField("API Key（保存在钥匙串）", text: $apiKey)
-                .onSubmit(saveKey)
-                .onChange(of: apiKey) { saveKey() }
+                .onSubmit { saveKey(for: selection) }
+                // 停手 0.6 秒再写钥匙串，不要每个字都写一次。
+                .task(id: apiKey) {
+                    try? await Task.sleep(for: .milliseconds(600))
+                    if !Task.isCancelled { saveKey(for: selection) }
+                }
             if provider.wrappedValue.style == .openAICompatible {
                 LabeledContent("温度") {
                     HStack {
@@ -247,8 +256,9 @@ struct TranslationSettingsView: View {
         apiKey = selection.flatMap { Keychain.apiKey(for: $0) } ?? ""
     }
 
-    private func saveKey() {
-        guard let id = selection else { return }
+    private func saveKey(for id: UUID?) {
+        // 服务已经被删掉时不要把 Key 写回去。
+        guard let id, model.settings.providers.contains(where: { $0.id == id }) else { return }
         let stored = Keychain.apiKey(for: id) ?? ""
         guard stored != apiKey else { return }
         Keychain.setAPIKey(apiKey, for: id)
@@ -256,6 +266,7 @@ struct TranslationSettingsView: View {
     }
 
     private func runTest() {
+        saveKey(for: selection)
         guard let provider = model.settings.providers.first(where: { $0.id == selection }) ?? model.settings.activeProvider else { return }
         let translator = LLMTranslator(provider: provider, prompt: model.settings.prompt, apiKey: Keychain.apiKey(for: provider.id))
         testing = true
