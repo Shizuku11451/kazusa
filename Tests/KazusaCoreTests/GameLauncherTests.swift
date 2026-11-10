@@ -27,4 +27,19 @@ import Testing
         }
         #expect(!stillRunning)
     }
+
+    @Test(arguments: [
+        // (自动选的原生, 用户停止, 返回码, 时长, 期望)
+        (true, false, Int32(1), 5.0, true),
+        (true, false, Int32(1), 59.9, true),
+        (true, false, Int32(1), 60.0, false),   // 玩了一会儿才崩：不是引擎不支持
+        (true, false, Int32(0), 5.0, false),    // 正常退出
+        (true, true, Int32(15), 5.0, false),    // 用户点了停止
+        (false, false, Int32(1), 5.0, false),   // 用户手动选的原生引擎
+    ])
+    func fallBackToWine(automatic: Bool, stopped: Bool, code: Int32, duration: Double, expected: Bool) {
+        let exit = GameExit(gameID: UUID(), exitCode: code, startedAt: Date(), duration: duration,
+                            logFile: URL(fileURLWithPath: "/dev/null"))
+        #expect(exit.shouldFallBackToWine(automaticNative: automatic, stoppedByUser: stopped) == expected)
+    }
 }

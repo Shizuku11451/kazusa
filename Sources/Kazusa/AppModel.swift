@@ -524,9 +524,8 @@ final class AppModel {
         let wasAutomaticNative = automaticNativeLaunches.remove(exit.gameID) != nil
         let stoppedByUser = stoppingGameIDs.remove(exit.gameID) != nil
         guard let i = games.firstIndex(where: { $0.id == exit.gameID }) else { return }
-        // 自动选的原生引擎一启动就出错（插件不支持、脚本用了没实现的功能等），改用 Wine 再启动一次，
-        // 并记住这个游戏用 Wine。
-        if wasAutomaticNative && !stoppedByUser && exit.exitCode != 0 && exit.duration < 60 {
+        // 改用 Wine 再启动一次，并记住这个游戏用 Wine。
+        if exit.shouldFallBackToWine(automaticNative: wasAutomaticNative, stoppedByUser: stoppedByUser) {
             let engineName = NativeEngines.name(for: games[i].engine) ?? "原生引擎"
             games[i].backend = .wine
             saveGames()

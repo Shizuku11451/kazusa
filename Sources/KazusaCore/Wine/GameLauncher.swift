@@ -9,6 +9,11 @@ public struct GameExit: Sendable {
     public var startedAt: Date
     public var duration: TimeInterval
     public var logFile: URL
+
+    /// 自动选的原生引擎一启动就出错（插件不支持、脚本用了没实现的功能等）：该改用 Wine 再启动一次。
+    public func shouldFallBackToWine(automaticNative: Bool, stoppedByUser: Bool) -> Bool {
+        automaticNative && !stoppedByUser && exitCode != 0 && duration < 60
+    }
 }
 
 /// 启动 / 停止游戏，记录日志和游玩时长。
