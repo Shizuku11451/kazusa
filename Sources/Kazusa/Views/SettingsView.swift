@@ -65,7 +65,13 @@ struct RuntimeSettingsView: View {
                     Text("没有找到 Wine。可以安装 Wine 的 macOS 构建（例如 Homebrew 的 wine-stable，或 Gcenx 的 wine-crossover 构建），或者在下面导入一个压缩包。")
                         .font(.callout).foregroundStyle(.secondary)
                 } else {
-                    Picker("使用", selection: $model.settings.selectedRuntimePath) {
+                    // 没选过、或选的那个已经找不到时，实际用的是第一个；显示成“自动”，别让选择框空着。
+                    Picker("使用", selection: Binding(
+                        get: { model.runtimes.contains { $0.wineBinary.path == model.settings.selectedRuntimePath } ? model.settings.selectedRuntimePath : "" },
+                        set: { model.settings.selectedRuntimePath = $0 }
+                    )) {
+                        Text("自动（\(label(for: model.runtimes[0]))）").tag("")
+                        Divider()
                         ForEach(model.runtimes) { runtime in
                             Text(label(for: runtime)).tag(runtime.wineBinary.path)
                         }
@@ -86,13 +92,20 @@ struct RuntimeSettingsView: View {
                 }
             }
 
-            Section("字体") {
-                TextField("中日文字体替换为", text: $model.settings.cjkFont, prompt: Text("自动（日文 Hiragino Sans W3，中文 Hiragino Sans GB W3）"))
-                Text("Windows 游戏里的 MS Gothic、SimSun 等字体会被替换成这个 macOS 字体。留空则按游戏区域自动选择；每次启动游戏时生效。")
+            Section {
+                TextField("中日文字体替换为", text: $model.settings.cjkFont, prompt: Text("自动"))
+            } header: {
+                Text("字体")
+            } footer: {
+                Text("Windows 游戏里的 MS Gothic、SimSun 等字体会换成这里填的 macOS 字体。留空则按游戏区域选择：日文用 Hiragino Sans W3，中文用 Hiragino Sans GB W3。下次启动游戏时生效。")
                     .font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .formStyle(.grouped)
+        // 打开设置时光标不要自己跳进“自定义 wine 路径”。
+        .onAppear { DispatchQueue.main.async { NSApp.keyWindow?.makeFirstResponder(nil) } }
         .task(id: model.runtimes) {
             for runtime in model.runtimes where versions[runtime.id] == nil {
                 versions[runtime.id] = await runtime.version() ?? "?"
@@ -137,9 +150,17 @@ struct TranslationSettingsView: View {
                             Spacer()
                             if provider.id == model.settings.activeProvider?.id {
                                 Image(systemName: "checkmark").foregroundStyle(.tint)
+                                    .help("当前使用")
+                                    .accessibilityLabel("当前使用")
                             }
                         }
                         .tag(provider.id)
+                    }
+                }
+                .overlay {
+                    if model.settings.providers.isEmpty {
+                        Text("还没有翻译服务\n点下面的 + 添加").multilineTextAlignment(.center)
+                            .font(.callout).foregroundStyle(.secondary).padding()
                     }
                 }
                 HStack {
@@ -165,9 +186,12 @@ struct TranslationSettingsView: View {
                 if let index = model.settings.providers.firstIndex(where: { $0.id == selection }) {
                     providerEditor($model.settings.providers[index])
                 } else {
-                    Text("选择或添加一个翻译服务").foregroundStyle(.secondary)
+                    Section {
+                        Text(model.settings.providers.isEmpty ? "先在左边点 + 添加一个翻译服务" : "在左边选一个翻译服务来编辑")
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                Section("提示词") {
+                Section("提示词（所有服务共用）") {
                     TextField("目标语言", text: $model.settings.prompt.targetLanguage)
                     Stepper("上文行数：\(model.settings.prompt.contextLines)", value: $model.settings.prompt.contextLines, in: 0...20)
                     TextEditor(text: $model.settings.prompt.systemPrompt)
@@ -178,7 +202,8 @@ struct TranslationSettingsView: View {
                 Section("测试") {
                     TextField("原文", text: $testInput)
                     HStack {
-                        Button("翻译") { runTest() }.disabled(testing)
+                        Button("测试翻译") { runTest() }
+                            .disabled(testing || testInput.trimmingCharacters(in: .whitespaces).isEmpty)
                         if testing { ProgressView().controlSize(.small) }
                     }
                     if testFailed {
@@ -219,7 +244,7 @@ struct TranslationSettingsView: View {
             if provider.wrappedValue.style == .openAICompatible {
                 LabeledContent("温度") {
                     HStack {
-                        Toggle("", isOn: Binding(
+                        Toggle("自定义温度", isOn: Binding(
                             get: { provider.wrappedValue.temperature != nil },
                             set: { provider.wrappedValue.temperature = $0 ? 0.3 : nil }
                         )).labelsHidden()
@@ -231,8 +256,11 @@ struct TranslationSettingsView: View {
                 }
             }
             Stepper("超时：\(Int(provider.wrappedValue.timeoutSeconds)) 秒", value: provider.timeoutSeconds, in: 5...300, step: 5)
-            Button("设为当前使用") { model.settings.activeProviderID = provider.wrappedValue.id }
-                .disabled(model.settings.activeProvider?.id == provider.wrappedValue.id)
+            if model.settings.activeProvider?.id == provider.wrappedValue.id {
+                Label("翻译时正在使用这个服务", systemImage: "checkmark.circle.fill").foregroundStyle(.secondary)
+            } else {
+                Button("设为当前使用") { model.settings.activeProviderID = provider.wrappedValue.id }
+            }
         }
     }
 
