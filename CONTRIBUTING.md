@@ -31,6 +31,7 @@ cd kazusa
 swift run Kazusa            # 直接运行
 scripts/test.sh             # 跑单元测试（会自动处理只装 CLT 时的 Testing 框架路径）
 scripts/build-app.sh        # 打包到 build/Kazusa.app（通用二进制）
+scripts/make-dmg.sh         # 把 build/Kazusa.app 做成 dmg 安装包
 swift run kazusa-cli        # 命令行工具：安装运行时、识别游戏、不开界面直接启动
 ```
 

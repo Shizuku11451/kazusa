@@ -32,17 +32,28 @@
 
 ## 快速开始
 
-1. 从 [Releases](https://github.com/Shizuku11451/kazusa/releases/latest) 下载 `Kazusa-*-macOS.zip`，解压后拖进「应用程序」。这是通用二进制，Apple 芯片和 Intel 都能用。
-2. 这个版本**没有经过 Apple 公证**，第一次打开会被拦下。右键 → 打开，或者在终端运行：
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/Kazusa.app
-   ```
-3. **Rosetta 2**（Apple 芯片）：`softwareupdate --install-rosetta --agree-to-license`
-4. **Wine**：从 [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds/releases) 下载 `wine-staging-*-osx64.tar.xz`，在「设置 → 运行环境 → 从压缩包安装」里导入。
-5. 把游戏文件夹或 exe 拖进窗口，点「启动」。
+**安装 Kazusa**（二选一）：
+
+- **dmg 安装包（推荐）**：从 [Releases](https://github.com/Shizuku11451/kazusa/releases/latest) 下载 `Kazusa-*-macOS.dmg`，打开后把 Kazusa 拖进「应用程序」。这是通用二进制，Apple 芯片和 Intel 都能用。
+
+  这个版本**没有经过 Apple 公证**，第一次打开会被拦下。macOS 15 及以后：被拦下后到「系统设置 → 隐私与安全性」，点「仍要打开」；macOS 14：右键 → 打开。也可以在终端运行：
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/Kazusa.app
+  ```
+- **从源码构建**：需要 Swift 6（装 Command Line Tools 就够）。自己构建的程序不会被 Gatekeeper 拦下。
+  ```sh
+  git clone https://github.com/Shizuku11451/kazusa.git && cd kazusa
+  scripts/build-app.sh && cp -R build/Kazusa.app /Applications/
+  ```
+
+**然后**：
+
+1. **Rosetta 2**（Apple 芯片）：`softwareupdate --install-rosetta --agree-to-license`
+2. **Wine**：从 [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds/releases) 下载 `wine-staging-*-osx64.tar.xz`，在「设置 → 运行环境 → 从压缩包安装」里导入。
+3. 把游戏文件夹或 exe 拖进窗口，点「启动」。
 
 > [!NOTE]
-> NScripter 游戏和未加密的 KiriKiri 游戏（仅 Apple 芯片）默认原生运行，不需要第 3、4 步。
+> NScripter 游戏和未加密的 KiriKiri 游戏（仅 Apple 芯片）默认原生运行，不需要第 1、2 步。
 
 > [!TIP]
 > 只有用 OCR 翻译时才需要**屏幕录制权限**（系统设置 → 隐私与安全性 → 屏幕与系统录音），文本钩子不需要。
@@ -92,6 +103,7 @@
 ```bash
 swift run Kazusa            # 开发时直接运行
 scripts/build-app.sh        # 打包到 build/Kazusa.app
+scripts/make-dmg.sh         # 再做成 dmg 安装包：build/Kazusa-<版本>-macOS.dmg
 scripts/test.sh             # 跑单元测试
 swift run kazusa-cli        # 命令行工具：安装运行时、识别游戏、不开界面直接启动
 ```
