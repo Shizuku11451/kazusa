@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT="${1:-build}"
 APP="$OUT/Kazusa.app"
-VERSION="0.1.0"
+VERSION="0.2.0"
 
 # 通用二进制（Apple 芯片 + Intel）。只装了 Command Line Tools 时 `--arch a --arch b` 需要 Xcode，
 # 所以分别构建两个架构再用 lipo 合并。
@@ -76,7 +76,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleVersion</key><string>2</string>
     <key>CFBundleDevelopmentRegion</key><string>zh-Hans</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
