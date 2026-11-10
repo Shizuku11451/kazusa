@@ -17,6 +17,8 @@ public actor TranslationSession {
     private var cache: [String: String] = [:]
     private let historyLimit = 200
     private let store: TranslationStore?
+    /// 记录文件只增不减，第一次用到时才在 actor 上读，不在构造的线程（通常是主线程）上读。
+    private var restored = false
     /// 最近一次写记录失败的原因（磁盘满、没权限等）；不影响翻译本身。
     public private(set) var storeError: String?
 
@@ -24,6 +26,11 @@ public actor TranslationSession {
         self.translator = translator
         self.glossary = glossary
         self.store = store
+    }
+
+    private func restoreIfNeeded() {
+        guard !restored else { return }
+        restored = true
         (history, cache) = Self.restore(from: store, language: translator.prompt.targetLanguage, historyLimit: historyLimit)
     }
 
@@ -31,15 +38,14 @@ public actor TranslationSession {
         let languageChanged = translator.prompt.targetLanguage != self.translator.prompt.targetLanguage
         self.translator = translator
         self.glossary = glossary
-        if languageChanged {
-            (history, cache) = Self.restore(from: store, language: translator.prompt.targetLanguage, historyLimit: historyLimit)
-        }
+        if languageChanged { restored = false }
     }
 
     /// 清空记录（内存和文件）。之后同样的句子会重新调用 LLM 翻译。
     public func clear() throws {
         history = []
         cache = [:]
+        restored = true
         try store?.clear()
     }
 
@@ -51,13 +57,17 @@ public actor TranslationSession {
         return (history, cache)
     }
 
-    public var lines: [Line] { history }
+    public var lines: [Line] {
+        restoreIfNeeded()
+        return history
+    }
 
     /// 翻译一句。与上一句相同（OCR 反复识别到同一画面）时直接返回 nil。
     /// - Parameter onPartial: 传入时使用流式输出，回调参数是（原文, 目前为止的译文）。
     public func submit(_ rawText: String, onPartial: (@Sendable (String, String) -> Void)? = nil) async throws -> Line? {
         let text = Self.normalize(rawText)
         guard !text.isEmpty else { return nil }
+        restoreIfNeeded()
         if history.last?.source == text { return nil }
 
         let translation: String

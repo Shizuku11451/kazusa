@@ -89,14 +89,16 @@ final class AppModel {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.flushPendingSaves() }
         }
-        loadCovers()
         for game in games { refreshNativeSupport(for: game) }
-        for game in games where coverImages[game.id] == nil {
-            autoFetchCover(for: game.id)
-        }
-        // 旧版本只记了 vndbID，没有资料，补拉一次。
-        for game in games where game.vndbID != nil && game.metadata == nil && coverImages[game.id] != nil {
-            fetchMetadata(for: game.id)
+        Task {
+            await loadCovers()
+            for game in games where coverImages[game.id] == nil {
+                autoFetchCover(for: game.id)
+            }
+            // 旧版本只记了 vndbID，没有资料，补拉一次。
+            for game in games where game.vndbID != nil && game.metadata == nil && coverImages[game.id] != nil {
+                fetchMetadata(for: game.id)
+            }
         }
     }
 
@@ -222,11 +224,14 @@ final class AppModel {
 
     // MARK: - 封面
 
-    private func loadCovers() {
-        for game in games {
-            if let data = covers.data(for: game.id), let image = NSImage(data: data) {
-                coverImages[game.id] = image
-            }
+    /// 封面文件在后台读，不卡启动。
+    private func loadCovers() async {
+        let covers = covers
+        let ids = games.map(\.id)
+        let loaded = await Task.detached { ids.compactMap { id in covers.data(for: id).map { (id, $0) } } }.value
+        // 读的时候用户可能已经换了封面。
+        for (id, data) in loaded where coverImages[id] == nil {
+            if let image = NSImage(data: data) { coverImages[id] = image }
         }
     }
 
