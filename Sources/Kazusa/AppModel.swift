@@ -47,6 +47,7 @@ final class AppModel {
     }
 
     @ObservationIgnored lazy var overlay = TranslatorOverlayController(model: self)
+    @ObservationIgnored let upscaler = GameUpscaler()
     /// 正在运行的文本钩子，按游戏 ID。
     @ObservationIgnored private var hookHosts: [UUID: TextHookHost] = [:]
     @ObservationIgnored private var nativeTextSources: [UUID: NativeTextSource] = [:]
@@ -105,6 +106,7 @@ final class AppModel {
     private func registerHotKeys() {
         GlobalHotKeys.shared.register(.recognize) { [weak self] in self?.overlay.captureOnce() }
         GlobalHotKeys.shared.register(.toggleLock) { [weak self] in self?.overlay.toggleLock() }
+        GlobalHotKeys.shared.register(.upscale) { [weak self] in self?.toggleUpscale() }
     }
 
     // MARK: - 游戏库
@@ -735,6 +737,12 @@ final class AppModel {
     }
 
     // MARK: - 错误
+
+    func toggleUpscale() {
+        Task {
+            do { try await upscaler.toggle() } catch { report(error) }
+        }
+    }
 
     func report(_ error: Error) {
         alert = AlertItem(title: "出错了", message: error.localizedDescription)

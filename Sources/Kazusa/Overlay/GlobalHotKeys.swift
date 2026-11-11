@@ -18,6 +18,8 @@ final class GlobalHotKeys {
         static let recognize = Combo(keyCode: kVK_ANSI_R, modifiers: cmdKey | shiftKey, display: "⇧⌘R")
         /// ⇧⌘L
         static let toggleLock = Combo(keyCode: kVK_ANSI_L, modifiers: cmdKey | shiftKey, display: "⇧⌘L")
+        /// ⇧⌘U
+        static let upscale = Combo(keyCode: kVK_ANSI_U, modifiers: cmdKey | shiftKey, display: "⇧⌘U")
     }
 
     static let shared = GlobalHotKeys()

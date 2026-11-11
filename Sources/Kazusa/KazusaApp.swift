@@ -29,6 +29,9 @@ struct KazusaApp: App {
                 Button("停止…") { if let game { model.confirmingStop = .init(id: game.id) } }
                     .disabled(!running)
                 Divider()
+                // 系统级快捷键，游戏在前台时按才有意义（放大最前面的窗口）。
+                Button("画面放大 开 / 关（\(GlobalHotKeys.Combo.upscale.display)）") { model.toggleUpscale() }
+                Divider()
                 Button("游戏设置…") { if let game { model.gameSettings = .init(id: game.id) } }
                     .keyboardShortcut("i")
                     .disabled(game == nil)

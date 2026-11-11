@@ -75,7 +75,7 @@ final class GameWindowTracker {
     }
 
     /// CGWindowList 的坐标原点在主屏左上角、y 向下；AppKit 的在主屏左下角、y 向上。
-    private static func appKitRect(_ rect: CGRect) -> NSRect {
+    static func appKitRect(_ rect: CGRect) -> NSRect {
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         return NSRect(x: rect.minX, y: primaryHeight - rect.maxY, width: rect.width, height: rect.height)
     }
