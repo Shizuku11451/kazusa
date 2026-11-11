@@ -109,12 +109,8 @@ public struct WinePrefix: Sendable {
             }
             FileManager.default.createFile(atPath: initMarker.path, contents: nil)
         }
-        try await importRegistry(FontSubstitutes.registryFile(locale: locale, override: cjkFont) + Self.macDriverSettings,
-                                 runtime: runtime, environment: initEnv)
+        try await importRegistry(FontSubstitutes.registryFile(locale: locale, override: cjkFont), runtime: runtime, environment: initEnv)
     }
-
-    /// D3D 游戏（wined3d 走 OpenGL）在切换前台应用时会闪黑一帧；让 Mac 驱动给 GL 画面加一层后备缓冲就不闪了。
-    static let macDriverSettings = "\r\n[HKEY_CURRENT_USER\\Software\\Wine\\Mac Driver]\r\n\"ForceOpenGLBackingStore\"=\"y\"\r\n\r\n"
 
     /// 上次导入的注册表内容的摘要；内容没变就不再跑 regedit（每次要 1~2 秒）。
     private var registryStamp: URL { url.appendingPathComponent(".kazusa-registry") }
