@@ -153,7 +153,10 @@ struct GameSettingsView: View {
 
                 Section("位置") {
                     LabeledContent("游戏目录") {
-                        Text(game.directory.path).textSelection(.enabled).lineLimit(2).truncationMode(.middle)
+                        HStack {
+                            Text(game.directory.path).textSelection(.enabled).lineLimit(2).truncationMode(.middle)
+                            Button("更改…") { chooseDirectory() }
+                        }
                     }
                     LabeledContent("存档") {
                         if let locations = game.saveLocations, !locations.isEmpty {
@@ -184,7 +187,8 @@ struct GameSettingsView: View {
             if game.backend == .native && !NativeEngines.supports(game.engine) { game.backend = nil }
             model.refreshNativeSupport(for: game)
         }
-        .task(id: game.id) { await reload() }
+        .onChange(of: game.directory) { model.refreshNativeSupport(for: game) }
+        .task(id: game.directory) { await reload() }
         .confirmationDialog("清除“\(game.title)”的翻译记录？", isPresented: $confirmingClear) {
             Button("清除", role: .destructive) {
                 model.clearTranslations(for: game.id)
@@ -242,6 +246,22 @@ struct GameSettingsView: View {
         }.value
         candidates = result.0
         detection = result.1
+        // 换了目录、原来的主程序在新目录里没有：改用最像主程序的那个。
+        if !game.executable.isEmpty, let best = candidates.first,
+           !FileManager.default.fileExists(atPath: directory.appendingPathComponent(game.executable).path) {
+            game.executable = best
+        }
+    }
+
+    /// 游戏挪了位置后重新指定目录。存档按相对游戏目录记录，跟着走。
+    private func chooseDirectory() {
+        let panel = NSOpenPanel()
+        panel.title = "选择“\(game.title)”现在所在的文件夹"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.directoryURL = game.directory.deletingLastPathComponent()
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        game.directory = url
     }
 
     private func commitArguments() {

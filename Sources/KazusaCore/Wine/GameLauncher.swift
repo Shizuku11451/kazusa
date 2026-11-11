@@ -38,7 +38,7 @@ public actor GameLauncher {
         public var errorDescription: String? {
             switch self {
             case .alreadyRunning: "游戏已经在运行"
-            case .executableMissing(let path): "找不到游戏程序：\(path)"
+            case .executableMissing(let path): "找不到游戏程序：\(path)。游戏挪过位置的话，到 游戏设置 → 位置 里更改游戏目录。"
             }
         }
     }
