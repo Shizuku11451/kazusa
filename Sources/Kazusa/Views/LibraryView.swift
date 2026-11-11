@@ -80,6 +80,9 @@ struct LibraryView: View {
             Text("会直接结束游戏，没存档的进度会丢失。")
         }
         .alert(model.alert?.title ?? "", isPresented: alertShown, presenting: model.alert) { item in
+            if let action = item.action {
+                Button(action.title) { action.run() }
+            }
             if let tab = item.settingsTab {
                 Button("去设置") {
                     model.settingsTab = tab

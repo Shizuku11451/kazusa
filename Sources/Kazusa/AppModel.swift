@@ -68,6 +68,13 @@ final class AppModel {
         var message: String
         /// 不为空时弹窗里多一个“去设置”按钮，跳到对应标签页。
         var settingsTab: SettingsTab?
+        /// 不为空时弹窗里多一个按钮，直接把问题解决掉（比如安装缺的组件）。
+        var action: AlertAction?
+    }
+
+    struct AlertAction {
+        var title: String
+        var run: @MainActor () -> Void
     }
 
     enum SettingsTab: Hashable {
@@ -409,6 +416,52 @@ final class AppModel {
         }
     }
 
+    /// Rosetta 只会被我们装上，不会被卸掉，所以装完更新一次就行。
+    private(set) var rosettaInstalled = SystemCheck.isRosettaInstalled
+    @ObservationIgnored private var installingComponent = false
+
+    /// 下载安装推荐的 Wine；`then` 是装好后要做的事（比如接着启动游戏）。
+    func installRecommendedRuntime(then: (@MainActor () -> Void)? = nil) {
+        guard !installingComponent else { return }
+        installingComponent = true
+        let pinned = RuntimeInstaller.recommended
+        busyMessage = "正在下载 \(pinned.name)…"
+        Task {
+            defer { busyMessage = nil; installingComponent = false }
+            do {
+                let runtime = try await RuntimeInstaller.installRecommended(paths: paths) { fraction in
+                    Task { @MainActor in
+                        guard self.installingComponent else { return }
+                        self.busyMessage = fraction < 1
+                            ? "正在下载 \(pinned.name)… \(Int(fraction * 100))%"
+                            : "正在安装 \(pinned.name)…"
+                    }
+                }
+                refreshRuntimes()
+                settings.selectedRuntimePath = runtime.wineBinary.path
+                then?()
+            } catch {
+                report(error)
+            }
+        }
+    }
+
+    func installRosetta(then: (@MainActor () -> Void)? = nil) {
+        guard !installingComponent else { return }
+        installingComponent = true
+        busyMessage = "正在安装 Rosetta 2…"
+        Task {
+            defer { busyMessage = nil; installingComponent = false }
+            do {
+                guard try await SystemCheck.installRosetta() else { return }
+                rosettaInstalled = SystemCheck.isRosettaInstalled
+                then?()
+            } catch {
+                report(error)
+            }
+        }
+    }
+
     // MARK: - 启动
 
     /// 打包的原生引擎（ONScripter、krkr2）；开发时用仓库里构建好的。
@@ -442,15 +495,27 @@ final class AppModel {
             launchNative(game)
             return
         }
-        if SystemCheck.isAppleSilicon && !SystemCheck.isRosettaInstalled {
+        // 缺组件时弹窗里直接给安装按钮，装好后接着启动；两样都缺就依次各弹一次。
+        if SystemCheck.isAppleSilicon && !rosettaInstalled {
             alert = AlertItem(
                 title: "需要安装 Rosetta 2",
-                message: "Wine 是 x86_64 程序，在 Apple 芯片上需要 Rosetta 2。请在终端运行：\n\n\(SystemCheck.rosettaInstallCommand)"
+                message: "这个游戏要用 Wine 运行。Wine 是 Intel 程序，在 Apple 芯片上需要 Rosetta 2。安装时会要求输入登录密码。",
+                action: AlertAction(title: "安装并启动") { [weak self] in
+                    self?.installRosetta { self?.relaunch(game.id) }
+                }
             )
             return
         }
         guard let runtime = currentRuntime else {
-            alert = AlertItem(title: "没有可用的 Wine 运行时", message: "请在设置的“运行环境”页里安装或指定一个 Wine 运行时。", settingsTab: .runtime)
+            let pinned = RuntimeInstaller.recommended
+            alert = AlertItem(
+                title: "需要安装 Wine",
+                message: "这个游戏要用 Wine 运行。Kazusa 会下载 \(pinned.name)（约 \(pinned.sizeMB) MB），只需要装一次。\n\n已经有别的 Wine 构建也可以去设置里指定。",
+                settingsTab: .runtime,
+                action: AlertAction(title: "下载并启动") { [weak self] in
+                    self?.installRecommendedRuntime { self?.relaunch(game.id) }
+                }
+            )
             return
         }
 
@@ -474,6 +539,11 @@ final class AppModel {
                 report(error)
             }
         }
+    }
+
+    /// 装完组件后接着启动；按 ID 重新取，下载期间游戏可能被改过或移除了。
+    private func relaunch(_ id: UUID) {
+        if let game = games.first(where: { $0.id == id }) { launch(game) }
     }
 
     private func launchNative(_ game: Game) {

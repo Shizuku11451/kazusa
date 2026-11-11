@@ -35,16 +35,18 @@ struct RuntimeSettingsView: View {
             Section("系统") {
                 if SystemCheck.isAppleSilicon {
                     LabeledContent("Rosetta 2") {
-                        if SystemCheck.isRosettaInstalled {
+                        if model.rosettaInstalled {
                             Label("已安装", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                         } else {
-                            Label("未安装", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                            Button("安装…") { model.installRosetta() }
+                                .help("会要求输入登录密码")
                         }
                     }
-                    if !SystemCheck.isRosettaInstalled {
+                    if !model.rosettaInstalled {
                         HStack {
-                            Text(SystemCheck.rosettaInstallCommand)
+                            Text("也可以在终端运行：\(SystemCheck.rosettaInstallCommand)")
                                 .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
                             Spacer()
                             Button("复制命令") { copy(SystemCheck.rosettaInstallCommand) }
@@ -62,7 +64,7 @@ struct RuntimeSettingsView: View {
 
             Section("Wine 运行时") {
                 if model.runtimes.isEmpty {
-                    Text("没有找到 Wine。可以安装 Wine 的 macOS 构建（例如 Homebrew 的 wine-stable，或 Gcenx 的 wine-crossover 构建），或者在下面导入一个压缩包。")
+                    Text("没有找到 Wine。点下面的「下载安装」就行；已经有别的 Wine 构建也可以导入压缩包或填路径。")
                         .font(.callout).foregroundStyle(.secondary)
                 } else {
                     // 没选过、或选的那个已经找不到时，实际用的是第一个；显示成“自动”，别让选择框空着。
@@ -84,7 +86,18 @@ struct RuntimeSettingsView: View {
                 }
                 TextField("自定义 wine 路径", text: $model.settings.customWineBinary, prompt: Text("/path/to/bin/wine"))
                     .onSubmit { model.refreshRuntimes() }
+                if let message = model.busyMessage {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(message)
+                    }
+                }
                 HStack {
+                    if !hasRecommendedRuntime {
+                        Button("下载安装 \(RuntimeInstaller.recommended.name)") { model.installRecommendedRuntime() }
+                            .help("约 \(RuntimeInstaller.recommended.sizeMB) MB。Kazusa 测试过这个版本，防 Rosetta 崩溃的修复也是给它编译的。")
+                            .disabled(model.busyMessage != nil)
+                    }
                     Button("从压缩包安装…") { pickArchive() }
                     Button("重新扫描") { model.refreshRuntimes() }
                     Spacer()
@@ -111,6 +124,10 @@ struct RuntimeSettingsView: View {
                 versions[runtime.id] = await runtime.version() ?? "?"
             }
         }
+    }
+
+    private var hasRecommendedRuntime: Bool {
+        model.runtimes.contains { $0.source == .managed && $0.rootDirectory.lastPathComponent == RuntimeInstaller.recommended.name }
     }
 
     private func label(for runtime: WineRuntime) -> String {

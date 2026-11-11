@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Shizuku11451
 
+import CryptoKit
 import Foundation
 
 /// 一个可用的 Wine 运行时（x86_64 构建，经 Rosetta 2 运行）。
@@ -142,12 +143,63 @@ public enum RuntimeInstaller {
     public enum InstallError: LocalizedError {
         case extractFailed(String)
         case noWineBinary
+        case checksumMismatch
 
         public var errorDescription: String? {
             switch self {
             case .extractFailed(let log): "解压失败：\(log)"
             case .noWineBinary: "压缩包里没有找到 bin/wine 或 bin/wine64"
+            case .checksumMismatch: "下载的文件校验不对（可能没下完或被改过），请重试"
             }
+        }
+    }
+
+    /// 一键安装用的 Wine 构建。写死版本：wow64cpu 的 Rosetta 修复只给几个版本预编译过（见 ThirdParty/wow64cpu-rosetta），
+    /// 换版本时要连同那边一起改。
+    public struct Pinned: Sendable {
+        public let name: String
+        public let url: URL
+        public let sha256: String
+        public let sizeMB: Int
+    }
+
+    public static let recommended = Pinned(
+        name: "wine-staging-11.21-osx64",
+        url: URL(string: "https://github.com/Gcenx/macOS_Wine_builds/releases/download/11.21/wine-staging-11.21-osx64.tar.xz")!,
+        sha256: "d7bcd5abf4df27aae397a7898aef074fea4a2e0b51e0a55aa9659517bbf9d452",
+        sizeMB: 217
+    )
+
+    /// 下载、校验并安装写死的 Wine 构建。`progress` 收到 0...1 的下载进度。
+    public static func installRecommended(paths: KazusaPaths, progress: @escaping @Sendable (Double) -> Void) async throws -> WineRuntime {
+        let pinned = recommended
+        let observer = ProgressObserver(progress)
+        let (file, _) = try await URLSession.shared.download(from: pinned.url, delegate: observer)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try verify(file, sha256: pinned.sha256)
+        // tar 按内容认格式，但下载的临时文件没有扩展名，install 靠扩展名区分 zip，所以补上。
+        let archive = file.deletingLastPathComponent().appendingPathComponent("\(pinned.name).tar.xz")
+        try? FileManager.default.removeItem(at: archive)
+        try FileManager.default.moveItem(at: file, to: archive)
+        defer { try? FileManager.default.removeItem(at: archive) }
+        return try await install(archive: archive, name: pinned.name, paths: paths)
+    }
+
+    static func verify(_ file: URL, sha256: String) throws {
+        let data = try Data(contentsOf: file, options: .alwaysMapped)
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        guard digest == sha256.lowercased() else { throw InstallError.checksumMismatch }
+    }
+
+    /// 把下载任务的 Progress 转成回调。
+    private final class ProgressObserver: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+        let report: @Sendable (Double) -> Void
+        var observation: NSKeyValueObservation?
+
+        init(_ report: @escaping @Sendable (Double) -> Void) { self.report = report }
+
+        func urlSession(_ session: URLSession, didCreateTask task: URLSessionTask) {
+            observation = task.progress.observe(\.fractionCompleted) { [report] p, _ in report(p.fractionCompleted) }
         }
     }
 
@@ -210,4 +262,18 @@ public enum SystemCheck {
     }
 
     public static let rosettaInstallCommand = "softwareupdate --install-rosetta --agree-to-license"
+
+    /// 弹系统的管理员密码框安装 Rosetta 2。用户点了取消返回 false，其他失败抛错。
+    public static func installRosetta() async throws -> Bool {
+        let script = "do shell script \"/usr/sbin/\(rosettaInstallCommand)\" with administrator privileges"
+        let result = try await ProcessRunner.run(URL(fileURLWithPath: "/usr/bin/osascript"), arguments: ["-e", script])
+        if result.exitCode == 0 { return true }
+        if result.output.contains("-128") { return false }  // errAEUserCanceled
+        throw RosettaInstallError(log: result.output)
+    }
+
+    public struct RosettaInstallError: LocalizedError {
+        public let log: String
+        public var errorDescription: String? { "安装 Rosetta 2 失败：\(log)\n\n也可以在终端运行：\(SystemCheck.rosettaInstallCommand)" }
+    }
 }

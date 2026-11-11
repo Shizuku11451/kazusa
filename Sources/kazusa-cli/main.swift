@@ -8,7 +8,7 @@ let usage = """
 用法：kazusa-cli <命令>
 
   runtimes                          列出找到的 Wine 运行时
-  install-runtime <压缩包> [名字]     安装 Wine 运行时到 Runtimes/
+  install-runtime [压缩包] [名字]     安装 Wine 运行时到 Runtimes/；不给压缩包就下载推荐版本
   inspect <游戏目录>                 识别引擎、主程序和区域
   run <游戏目录或 exe> [--locale ja|zhs|zht] [--prefix 名字] [--backend wine|native] [--debug]
                                     启动游戏并等待退出（日志输出到终端）；
@@ -67,7 +67,12 @@ case "runtimes":
     }
 
 case "install-runtime":
-    guard let archive = args.first else { fail("缺少压缩包路径") }
+    guard let archive = args.first else {
+        print("正在下载 \(RuntimeInstaller.recommended.name)…")
+        let runtime = try await RuntimeInstaller.installRecommended(paths: paths) { print(String(format: "\r%3.0f%%", $0 * 100), terminator: "") }
+        print("\n✅ \(runtime.wineBinary.path)  \(await runtime.version() ?? "")")
+        break
+    }
     let url = URL(fileURLWithPath: archive)
     let name = args.count > 1 ? args[1] : url.lastPathComponent.components(separatedBy: ".tar").first!
     print("正在安装 \(name)…")

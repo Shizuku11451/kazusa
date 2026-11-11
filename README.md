@@ -48,12 +48,13 @@
 
 **然后**：
 
-1. **Rosetta 2**（Apple 芯片）：`softwareupdate --install-rosetta --agree-to-license`
-2. **Wine**：从 [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds/releases) 下载 `wine-staging-*-osx64.tar.xz`，在「设置 → 运行环境 → 从压缩包安装」里导入。
-3. 把游戏文件夹或 exe 拖进窗口，点「启动」。
+把游戏文件夹或 exe 拖进窗口，点「启动」。缺 Rosetta 2 或 Wine 时会弹窗问你，点一下就装，装好后自动接着启动：
+
+- **Rosetta 2**（仅 Apple 芯片）：要输一次登录密码。
+- **Wine**：下载 Kazusa 测试过的 [Gcenx](https://github.com/Gcenx/macOS_Wine_builds) `wine-staging-11.21-osx64`（约 217 MB），校验后安装。想用别的版本，在「设置 → 运行环境」里导入压缩包或填路径。
 
 > [!NOTE]
-> NScripter 游戏和未加密的 KiriKiri 游戏（仅 Apple 芯片）默认原生运行，不需要第 1、2 步。
+> NScripter 游戏和未加密的 KiriKiri 游戏（仅 Apple 芯片）默认原生运行，不需要 Rosetta 和 Wine。
 
 > [!TIP]
 > 只有用 OCR 翻译时才需要**屏幕录制权限**（系统设置 → 隐私与安全性 → 屏幕与系统录音），文本钩子不需要。
