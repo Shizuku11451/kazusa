@@ -25,11 +25,21 @@ struct SettingsView: View {
             .navigationSplitViewColumnWidth(200)
         } detail: {
             NavigationStack {
-                switch model.settingsTab {
-                case .system: SystemSettingsView()
-                case .runtime: RuntimeSettingsView()
-                case .fonts: FontSettingsView()
-                case .translation: TranslationSettingsView()
+                Group {
+                    switch model.settingsTab {
+                    case .system: SystemSettingsView()
+                    case .runtime: RuntimeSettingsView()
+                    case .fonts: FontSettingsView()
+                    case .translation: TranslationSettingsView()
+                    }
+                }
+                // 和系统设置一样，最上层也放一个灰掉的返回按钮：工具栏一直是同样高，点进下一层时布局不跳。
+                .toolbar {
+                    ToolbarItem(placement: .navigation) {
+                        Button {} label: { Image(systemName: "chevron.left") }
+                            .disabled(true)
+                            .accessibilityLabel("返回")
+                    }
                 }
             }
             .navigationTitle(model.settingsTab.title)
