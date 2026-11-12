@@ -8,7 +8,7 @@ import SwiftUI
 struct GameSettingsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @Binding var game: Game
 
     @State private var candidates: [String] = []
@@ -87,7 +87,7 @@ struct GameSettingsView: View {
                             }
                             Button(model.settings.activeProvider == nil ? "去配置…" : "更改…") {
                                 model.settingsTab = .translation
-                                openSettings()
+                                openWindow(id: SettingsView.windowID)
                             }
                         }
                     }

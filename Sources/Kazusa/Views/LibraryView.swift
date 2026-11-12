@@ -6,7 +6,7 @@ import SwiftUI
 
 struct LibraryView: View {
     @Environment(AppModel.self) private var model
-    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isDropTargeted = false
     @State private var coverFlight = CoverFlight()
@@ -86,7 +86,7 @@ struct LibraryView: View {
             if let tab = item.settingsTab {
                 Button("去设置") {
                     model.settingsTab = tab
-                    openSettings()
+                    openWindow(id: SettingsView.windowID)
                 }
                 Button("好", role: .cancel) {}
             } else {
@@ -159,7 +159,7 @@ struct LibraryView: View {
                         Label("翻译悬浮窗", systemImage: "character.bubble")
                     }
                     .help("打开翻译悬浮窗（⇧⌘T）")
-                    Button { openSettings() } label: { Label("设置", systemImage: "gearshape") }
+                    Button { openWindow(id: SettingsView.windowID) } label: { Label("设置", systemImage: "gearshape") }
                         .help("运行环境、翻译服务（LLM）等全局设置")
                 }
             }

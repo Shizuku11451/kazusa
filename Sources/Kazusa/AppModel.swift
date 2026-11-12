@@ -77,8 +77,8 @@ final class AppModel {
         var run: @MainActor () -> Void
     }
 
-    enum SettingsTab: Hashable {
-        case runtime, translation
+    enum SettingsTab: Hashable, CaseIterable {
+        case system, runtime, fonts, translation
     }
 
     init() {

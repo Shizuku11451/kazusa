@@ -50,9 +50,14 @@ struct KazusaApp: App {
             }
         }
 
-        Settings {
+        // 不用 Settings 场景：它的工具栏固定是偏好设置样式，点进下一层时返回按钮会单独占一行。
+        Window("设置", id: SettingsView.windowID) {
             SettingsView()
                 .environment(model)
+        }
+        .windowResizability(.contentSize)
+        .commands {
+            CommandGroup(replacing: .appSettings) { SettingsCommand() }
         }
     }
 }
