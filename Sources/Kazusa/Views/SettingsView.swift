@@ -132,6 +132,7 @@ struct StatusRow<Trailing: View>: View {
 
 struct SystemSettingsView: View {
     @Environment(AppModel.self) private var model
+    @AppStorage(AppModel.autoCheckUpdatesKey) private var autoCheckUpdates = true
 
     var body: some View {
         Form {
@@ -167,9 +168,24 @@ struct SystemSettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            Section {
+                StatusRow(symbol: "arrow.down.circle.fill", color: .blue, title: "Kazusa \(Self.version)",
+                          status: autoCheckUpdates ? "自动检查更新已打开" : "自动检查更新已关闭", ok: autoCheckUpdates) {
+                    Toggle("自动检查更新", isOn: $autoCheckUpdates).labelsHidden()
+                    Button("立即检查") { model.checkForUpdates() }
+                }
+            } footer: {
+                Text("每天最多查一次 GitHub 上的新版本，有新版本时提示下载。")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .formStyle(.grouped)
     }
+}
+
+extension SystemSettingsView {
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版"
 }
 
 // MARK: - Wine 运行时

@@ -97,6 +97,12 @@ final class AppModel {
         refreshRuntimes()
         registerHotKeys()
         showingOnboarding = games.isEmpty && !UserDefaults.standard.bool(forKey: OnboardingView.doneKey)
+        // 第一次打开时刚下载完，不用查；之后每天最多自动查一次。
+        let lastCheck = UserDefaults.standard.double(forKey: Self.lastUpdateCheckKey)
+        if !showingOnboarding, UserDefaults.standard.object(forKey: Self.autoCheckUpdatesKey) as? Bool ?? true,
+           Date().timeIntervalSince1970 - lastCheck > 24 * 3600 {
+            checkForUpdates(silent: true)
+        }
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.flushPendingSaves() }
         }
@@ -814,6 +820,35 @@ final class AppModel {
     func toggleUpscale() {
         Task {
             do { try await upscaler.toggle() } catch { report(error) }
+        }
+    }
+
+    // MARK: - 更新
+
+    static let autoCheckUpdatesKey = "autoCheckUpdates"
+    private static let lastUpdateCheckKey = "lastUpdateCheck"
+
+    /// `silent`：自动检查时，查不到或已是最新就什么都不说。
+    func checkForUpdates(silent: Bool = false) {
+        let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        Task {
+            do {
+                let release = try await AppRelease.latest()
+                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastUpdateCheckKey)
+                if release.isNewer(than: current) {
+                    // 发布说明是 Markdown，提示框里只放去掉标记的开头一段。
+                    let plain = release.notes.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "## ", with: "")
+                    let notes = plain.count > 240 ? plain.prefix(240) + "…" : plain
+                    alert = AlertItem(
+                        title: "有新版本 Kazusa \(release.version)",
+                        message: "当前是 \(current)。下载 dmg 后打开，把 Kazusa 拖进「应用程序」替换旧版本，游戏库和设置都会保留。\n\n\(notes)",
+                        action: AlertAction(title: "下载") { NSWorkspace.shared.open(release.downloadURL) })
+                } else if !silent {
+                    alert = AlertItem(title: "已经是最新版本", message: "Kazusa \(current) 是目前最新的版本。")
+                }
+            } catch {
+                if !silent { alert = AlertItem(title: "检查更新失败", message: error.localizedDescription) }
+            }
         }
     }
 

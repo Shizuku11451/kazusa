@@ -61,6 +61,9 @@ struct KazusaApp: App {
         .windowResizability(.contentSize)
         .commands {
             CommandGroup(replacing: .appSettings) { SettingsCommand() }
+            CommandGroup(after: .appInfo) {
+                Button("检查更新…") { model.checkForUpdates() }
+            }
         }
     }
 }
