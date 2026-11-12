@@ -102,7 +102,7 @@ struct SettingsIcon: View {
 }
 
 /// 图标 + 标题 + 带彩色圆点的状态，右边放操作按钮（仿“网络”页）。
-private struct StatusRow<Trailing: View>: View {
+struct StatusRow<Trailing: View>: View {
     let symbol: String
     let color: Color
     let title: String

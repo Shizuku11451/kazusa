@@ -41,6 +41,9 @@ struct KazusaApp: App {
                 Button("从游戏库移除…") { if let game { model.confirmingRemoval = .init(id: game.id) } }
                     .disabled(game == nil)
             }
+            CommandGroup(after: .help) {
+                Button("新手引导…") { model.showingOnboarding = true }
+            }
             CommandMenu("翻译") {
                 Button("打开翻译悬浮窗") { model.overlay.show(game: model.selectedGame) }
                     .keyboardShortcut("t", modifiers: [.command, .shift])

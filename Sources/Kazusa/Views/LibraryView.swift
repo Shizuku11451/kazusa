@@ -57,6 +57,7 @@ struct LibraryView: View {
                 .padding()
             }
         }
+        .sheet(isPresented: $model.showingOnboarding) { OnboardingView() }
         .sheet(item: $model.coverSearch) { request in
             CoverSearchView(gameID: request.id)
         }

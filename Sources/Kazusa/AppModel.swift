@@ -38,6 +38,8 @@ final class AppModel {
     var alert: AlertItem?
     /// 设置窗口当前的标签页；从别处跳过去时先改它再打开设置。
     var settingsTab: SettingsTab = .runtime
+    /// 第一次打开（没看过引导、游戏库也是空的）时显示引导；帮助菜单里也能再打开。
+    var showingOnboarding = false
 
     var settings: AppSettings {
         didSet {
@@ -94,6 +96,7 @@ final class AppModel {
         }
         refreshRuntimes()
         registerHotKeys()
+        showingOnboarding = games.isEmpty && !UserDefaults.standard.bool(forKey: OnboardingView.doneKey)
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.flushPendingSaves() }
         }
