@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT="${1:-build}"
 APP="$OUT/Kazusa.app"
-VERSION="0.2.0"
+VERSION="0.3.0"
 
 # 通用二进制（Apple 芯片 + Intel）。只装了 Command Line Tools 时 `--arch a --arch b` 需要 Xcode，
 # 所以分别构建两个架构再用 lipo 合并。
