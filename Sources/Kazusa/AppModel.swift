@@ -827,15 +827,19 @@ final class AppModel {
 
     static let autoCheckUpdatesKey = "autoCheckUpdates"
     private static let lastUpdateCheckKey = "lastUpdateCheck"
+    private static let notifiedVersionKey = "notifiedUpdateVersion"
 
-    /// `silent`：自动检查时，查不到或已是最新就什么都不说。
+    /// `silent`：自动检查时，查不到、已是最新、或这个新版本提醒过了，就什么都不说。
     func checkForUpdates(silent: Bool = false) {
         let current = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
         Task {
             do {
                 let release = try await AppRelease.latest()
                 UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.lastUpdateCheckKey)
-                if release.isNewer(than: current) {
+                // 自动检查对同一个新版本只提醒一次，不想更新的人不会每天被打扰；手动检查每次都说。
+                let alreadyNotified = UserDefaults.standard.string(forKey: Self.notifiedVersionKey) == release.version
+                if release.isNewer(than: current), !(silent && alreadyNotified) {
+                    UserDefaults.standard.set(release.version, forKey: Self.notifiedVersionKey)
                     // 发布说明是 Markdown，提示框里只放去掉标记的开头一段。
                     let plain = release.notes.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "## ", with: "")
                     let notes = plain.count > 240 ? plain.prefix(240) + "…" : plain

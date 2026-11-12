@@ -20,6 +20,8 @@ struct OnboardingView: View {
             Text(titles[step])
                 .font(.title2.bold())
                 .padding(.top, 24)
+            // 页码放在标题下面：底部按钮有多有少，放那里会左右挪。
+            Text("第 \(step + 1) 步，共 \(titles.count) 步").font(.caption).foregroundStyle(.secondary)
             Group {
                 switch step {
                 case 0: welcome
@@ -34,8 +36,6 @@ struct OnboardingView: View {
                 if step < titles.count - 1 {
                     Button("跳过引导") { finish() }
                 }
-                Spacer()
-                Text("\(step + 1) / \(titles.count)").foregroundStyle(.secondary).monospacedDigit()
                 Spacer()
                 if step > 0 {
                     Button("上一步") { step -= 1 }

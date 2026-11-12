@@ -185,7 +185,7 @@ struct SystemSettingsView: View {
                     Button("立即检查") { model.checkForUpdates() }
                 }
             } footer: {
-                Text("每天最多查一次 GitHub 上的新版本，有新版本时提示下载。")
+                Text("每天最多查一次 GitHub 上的新版本，同一个新版本只提醒一次。")
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
