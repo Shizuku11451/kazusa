@@ -14,6 +14,7 @@
 - **桌面窗口**：不显示为触屏设计的游戏内菜单；窗口按游戏的分辨率和宽高比调整大小并居中（小于 1280 宽的游戏会放大，最大占屏幕的 85%），窗口标题跟着游戏标题走；
 - **出错时返回非 0**：脚本异常等启动错误原来会以 0 退出，现在返回 1，Kazusa 据此自动改用 Wine；
 - **建多级目录**：修正 macOS 上 `TVPCreateFolders` 把成功当失败的问题（存档目录在多级子目录里时建不出来）；
+- **文本输出**：设了环境变量 `KAZUSA_TEXT_PIPE` 时，`Layer.drawText` 画的字按图层和字号分开收集（字号不同的注音不会混进句子），停顿 0.4 秒后按 Kazusa 文本钩子的 JSON 行格式写进这个命名管道，Kazusa 自动挑字数最多的那一路当对白（见 `cpp/core/visual/kazusa_text.cpp`）；
 - **不依赖 Homebrew**：FFmpeg 关掉 xlib / xcb / SDL2，否则会链接到本机 Homebrew 里的 libxcb，换台 Mac 就打不开。
 
 ## 构建

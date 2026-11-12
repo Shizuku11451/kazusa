@@ -26,6 +26,7 @@ if [[ ! -d krkr2 ]]; then
 fi
 git -C krkr2 checkout -q --force "$KRKR2_COMMIT"
 [[ "$(git -C krkr2 rev-parse HEAD)" == "$KRKR2_COMMIT" ]] || { echo "krkr2 提交不对" >&2; exit 1; }
+git -C krkr2 clean -qfd cpp
 git -C krkr2 apply "$HERE/kazusa.patch"
 
 if [[ -z "${VCPKG_ROOT:-}" ]]; then

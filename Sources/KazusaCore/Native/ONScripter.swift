@@ -40,9 +40,8 @@ public enum NativeEngines {
     }
 
     /// 原生引擎能不能直接把显示的台词交给翻译（打了 Kazusa 的补丁，见 `NativeTextSource`）。
-    /// krkr2 还不行，KiriKiri 游戏用原生引擎时只能用 OCR。
     public static func providesText(_ engine: EngineKind) -> Bool {
-        engine == .nscripter
+        engine == .nscripter || engine == .kirikiri
     }
 
     /// 找打包的引擎程序；没打包（或 Intel Mac 上的 krkr2）返回 nil。

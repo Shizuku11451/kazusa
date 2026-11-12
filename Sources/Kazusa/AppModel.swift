@@ -752,7 +752,7 @@ final class AppModel {
         }
     }
 
-    /// 原生引擎自己输出台词（目前只有 ONScripter）：建好管道，引擎启动时把路径传过去。
+    /// 原生引擎（ONScripter、krkr2）自己输出台词：建好管道，引擎启动时把路径传过去。
     /// 不需要或建不了时返回 nil，改用 OCR 悬浮窗。
     private func startNativeText(for game: Game) -> NativeTextSource? {
         guard game.translation.enabled, game.translation.usesTextHook, NativeEngines.providesText(game.engine) else { return nil }

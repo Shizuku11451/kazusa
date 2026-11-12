@@ -5,7 +5,7 @@ import Darwin
 import Foundation
 
 /// 从原生引擎读出显示的台词：引擎把每句话按和 `kazusa-hook.exe` 一样的 JSON 行格式
-/// 写进环境变量 `KAZUSA_TEXT_PIPE` 指定的命名管道（见 ThirdParty/onscripter-yuri/kazusa.patch）。
+/// 写进环境变量 `KAZUSA_TEXT_PIPE` 指定的命名管道（见 ThirdParty/onscripter-yuri 和 ThirdParty/krkr2 的 kazusa.patch）。
 ///
 /// 管道由这边先建好并以读写方式打开：引擎那头打开时不会阻塞，引擎退出后也不会读到 EOF，
 /// 停止时关掉并删除。

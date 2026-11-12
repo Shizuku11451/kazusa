@@ -90,7 +90,7 @@
 
 | | |
 |---|---|
-| **文本钩子** | 用 Wine 启动日文游戏时，自动注入 [LunaHook](ThirdParty/lunahook/)（按游戏位数选 32 / 64 位），直接读出台词。游戏有好几路文本时自动挑对白那一路，也可以手动指定或输入特殊码。ONScripter 原生运行时，由引擎直接把台词交给 Kazusa |
+| **文本钩子** | 用 Wine 启动日文游戏时，自动注入 [LunaHook](ThirdParty/lunahook/)（按游戏位数选 32 / 64 位），直接读出台词。游戏有好几路文本时自动挑对白那一路，也可以手动指定或输入特殊码。ONScripter 和 krkr2 原生运行时，由引擎直接把台词交给 Kazusa |
 | **OCR 悬浮窗** | 钩不到时改用 OCR：半透明取景框盖在文本框上，ScreenCaptureKit 截图、Vision 识别。支持手动、自动（画面稳定后才翻译）、剪贴板三种模式；全局快捷键 ⇧⌘R 识别、⇧⌘L 锁定（点击穿透） |
 | **LLM** | 支持 OpenAI 兼容接口（DeepSeek、Ollama、LM Studio、各类中转）和 Anthropic 接口。翻译时带上前文和每个游戏的术语表，流式输出；翻过的句子会存下来，再次遇到不再调用 LLM |
 
@@ -117,7 +117,7 @@ swift run kazusa-cli        # 命令行工具：安装运行时、识别游戏�
   - [x] NScripter 走 ONScripter（打包进 Kazusa.app）
   - [x] KiriKiri 走 krkr2（只支持未加密封包，仅限 Apple 芯片）
   - [x] ONScripter 的文本输出（打补丁，让引擎把台词写进命名管道）
-  - [ ] krkr2 的文本输出
+  - [x] krkr2 的文本输出（按图层收集 drawText 画的字，停顿后整句送出）
   - 暂缓：System4 走 xsystem4（只覆盖 AliceSoft，新作支持不全）
 - [x] 文本钩子：LunaHook 注入、自动选对白那一路、字幕条跟随游戏窗口、特殊码
 - [x] OCR 翻译悬浮窗、全局快捷键、点击穿透、流式输出、翻译记录持久化

@@ -28,13 +28,14 @@ index 0d13d40..1fa96ba 100644
  
  bool TVPCreateFolders(const ttstr &folder) {
 diff --git a/cpp/core/environ/cocos2d/MainScene.cpp b/cpp/core/environ/cocos2d/MainScene.cpp
-index d1fd014..69b76a1 100644
+index d1fd014..2fe1bd1 100644
 --- a/cpp/core/environ/cocos2d/MainScene.cpp
 +++ b/cpp/core/environ/cocos2d/MainScene.cpp
-@@ -31,6 +31,12 @@
+@@ -31,6 +31,13 @@
  #include "CCKeyCodeConv.h"
  #include "RenderUtils.h"
  #include "TVPLog.h"
++#include "kazusa_text.h"
 +#if (CC_TARGET_PLATFORM == CC_PLATFORM_WIN32) ||                               \
 +    (CC_TARGET_PLATFORM == CC_PLATFORM_MAC) ||                                 \
 +    (CC_TARGET_PLATFORM == CC_PLATFORM_LINUX)
@@ -44,7 +45,7 @@ index d1fd014..69b76a1 100644
  
  USING_NS_CC;
  
-@@ -475,8 +481,9 @@ void TVPMainScene::initialize() {
+@@ -475,8 +482,9 @@ void TVPMainScene::initialize() {
      ScreenRatio = screenSize.height / designSize.height;
      designSize.width = designSize.height * screenSize.width / screenSize.height;
      initWithSize(designSize);
@@ -56,7 +57,7 @@ index d1fd014..69b76a1 100644
      GameNode = cocos2d::Node::create();
      // horizontal
      // std::swap(designSize.width, designSize.height);
-@@ -703,9 +710,11 @@ void TVPMainScene::doStartup(float dt, std::string path) {
+@@ -703,9 +711,11 @@ void TVPMainScene::doStartup(float dt, std::string path) {
      //_ResotreGLStatues(); // already in update()
      GLubyte handlerOpacity =
          pGlobalCfgMgr->GetValue<float>("menu_handler_opa", 0.15f) * 255;
@@ -71,7 +72,15 @@ index d1fd014..69b76a1 100644
      if(TVPWindowLayer::_consoleWin) {
          TVPWindowLayer::_consoleWin->removeFromParent();
          TVPWindowLayer::_consoleWin = nullptr;
-@@ -797,6 +806,77 @@ void TVPMainScene::update(float delta) {
+@@ -746,6 +756,7 @@ tjs_uint TVPGetGraphicCacheTotalBytes();
+ 
+ void TVPMainScene::update(float delta) {
+     ::Application->Run();
++    KazusaTextTick();
+     //	if (TVPWindowLayer::_currentWindowLayer)
+     // TVPWindowLayer::_currentWindowLayer->UpdateOverlay();
+     iTVPTexture2D::RecycleProcess();
+@@ -797,6 +808,77 @@ void TVPMainScene::update(float delta) {
  
  cocos2d::Size TVPMainScene::getUINodeSize() { return UINode->getContentSize(); }
  
@@ -149,7 +158,7 @@ index d1fd014..69b76a1 100644
  void TVPMainScene::addLayer(TVPWindowLayer *lay) {
      GameNode->addChild(lay, GAME_SCENE_ORDER);
      lay->setViewSize(GameNode->getContentSize());
-@@ -993,14 +1073,16 @@ void TVPMainScene::showWindowManagerOverlay(bool bVisible) {
+@@ -993,14 +1075,16 @@ void TVPMainScene::showWindowManagerOverlay(bool bVisible) {
                  TVPWindowManagerOverlay::create();
              GameNode->addChild(TVPWindowLayer::_windowMgrOverlay,
                                 GAME_WINMGR_ORDER);
@@ -250,6 +259,254 @@ index 039df21..e9f6194 100644
  
      void ResetDrawSprite() const;
  
+diff --git a/cpp/core/visual/CMakeLists.txt b/cpp/core/visual/CMakeLists.txt
+index 6765b92..cda5474 100644
+--- a/cpp/core/visual/CMakeLists.txt
++++ b/cpp/core/visual/CMakeLists.txt
+@@ -32,6 +32,7 @@ set(VISUAL_SOURCE_FILES
+     ${VISUAL_PATH}/FreeTypeFontRasterizer.cpp
+     ${VISUAL_PATH}/LoadPNG.cpp
+     ${VISUAL_PATH}/LayerIntf.cpp
++    ${VISUAL_PATH}/kazusa_text.cpp
+     ${VISUAL_PATH}/ComplexRect.cpp
+     ${VISUAL_PATH}/CharacterData.cpp
+     ${VISUAL_PATH}/BitmapLayerTreeOwner.cpp
+diff --git a/cpp/core/visual/LayerIntf.cpp b/cpp/core/visual/LayerIntf.cpp
+index 8cfbb15..be4d09f 100644
+--- a/cpp/core/visual/LayerIntf.cpp
++++ b/cpp/core/visual/LayerIntf.cpp
+@@ -45,6 +45,7 @@
+ #include "RenderManager.h"
+ #include <cstdlib>
+ #include "FontImpl.h"
++#include "kazusa_text.h"
+ 
+ extern void TVPSetFontRasterizer(tjs_int index);
+ 
+@@ -514,6 +515,7 @@ tjs_error tTJSNI_BaseLayer::ConstructResolvedTreeOwnerLike_0x800438(
+ //---------------------------------------------------------------------------
+ void tTJSNI_BaseLayer::Invalidate() {
+     Shutdown = true;
++    KazusaTextForget(this);
+ 
+     // stop transition
+     StopTransition();
+@@ -4459,6 +4461,7 @@ void tTJSNI_BaseLayer::DrawText(tjs_int x, tjs_int y, const ttstr &text,
+     }
+ 
+     ApplyFont();
++    KazusaTextDrawn(this, Name.c_str(), Font.Height, text.c_str());
+ 
+     tTVPComplexRect r;
+ 
+diff --git a/cpp/core/visual/kazusa_text.cpp b/cpp/core/visual/kazusa_text.cpp
+new file mode 100644
+index 0000000..4b7286e
+--- /dev/null
++++ b/cpp/core/visual/kazusa_text.cpp
+@@ -0,0 +1,175 @@
++// Kazusa: send text the game draws to Kazusa for translation (see kazusa_text.h).
++
++#include "kazusa_text.h"
++
++#include <chrono>
++#include <cstdio>
++#include <cstdlib>
++#include <fcntl.h>
++#include <map>
++#include <signal.h>
++#include <string>
++#include <unistd.h>
++#include <utility>
++
++namespace {
++
++// KAG draws a character every few dozen ms at slow text speeds; a longer pause
++// means it is waiting for a click.
++constexpr long long QuietMs = 400;
++
++struct Pending {
++    std::string id; // thread id, announced on first text
++    std::string text;
++    long long last = 0;
++};
++
++int pipeFd = -2; // -2: not opened yet, -1: disabled
++int nextSeq = 0;
++std::map<std::pair<const void *, tjs_int>, Pending> pending;
++
++long long nowMs() {
++    using namespace std::chrono;
++    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch())
++        .count();
++}
++
++void writeLine(const std::string &line) {
++    const char *p = line.data();
++    size_t left = line.size();
++    while(left > 0) {
++        ssize_t n = write(pipeFd, p, left);
++        if(n <= 0)
++            return; // reader gone or pipe full: drop the line, never block the game
++        p += n;
++        left -= (size_t)n;
++    }
++}
++
++bool ensureOpen() {
++    if(pipeFd != -2)
++        return pipeFd >= 0;
++    pipeFd = -1;
++    const char *path = getenv("KAZUSA_TEXT_PIPE");
++    if(!path || !*path)
++        return false;
++    // Kazusa keeps the FIFO open for reading, so this never blocks; O_NONBLOCK makes
++    // writes fail instead of stalling the game when Kazusa stops reading.
++    int fd = open(path, O_WRONLY | O_NONBLOCK | O_CLOEXEC);
++    if(fd < 0)
++        return false;
++    signal(SIGPIPE, SIG_IGN);
++#ifdef F_SETNOSIGPIPE
++    fcntl(fd, F_SETNOSIGPIPE, 1);
++#endif
++    pipeFd = fd;
++    return true;
++}
++
++void appendUTF8(std::string &out, const tjs_char *s) {
++    for(; *s; s++) {
++        uint32_t c = *s;
++        if(c >= 0xD800 && c < 0xDC00 && s[1] >= 0xDC00 && s[1] < 0xE000) {
++            c = 0x10000 + ((c - 0xD800) << 10) + (s[1] - 0xDC00);
++            s++;
++        }
++        if(c < 0x80) {
++            out += (char)c;
++        } else if(c < 0x800) {
++            out += (char)(0xC0 | c >> 6);
++            out += (char)(0x80 | (c & 0x3F));
++        } else if(c < 0x10000) {
++            out += (char)(0xE0 | c >> 12);
++            out += (char)(0x80 | (c >> 6 & 0x3F));
++            out += (char)(0x80 | (c & 0x3F));
++        } else {
++            out += (char)(0xF0 | c >> 18);
++            out += (char)(0x80 | (c >> 12 & 0x3F));
++            out += (char)(0x80 | (c >> 6 & 0x3F));
++            out += (char)(0x80 | (c & 0x3F));
++        }
++    }
++}
++
++void appendJSONString(std::string &out, const std::string &s) {
++    out += '"';
++    for(unsigned char c : s) {
++        switch(c) {
++            case '"': out += "\\\""; break;
++            case '\\': out += "\\\\"; break;
++            case '\n': out += "\\n"; break;
++            case '\t': out += "\\t"; break;
++            default:
++                if(c < 0x20) {
++                    char buf[8];
++                    snprintf(buf, sizeof(buf), "\\u%04x", c);
++                    out += buf;
++                } else {
++                    out += (char)c;
++                }
++        }
++    }
++    out += '"';
++}
++
++void send(Pending &p) {
++    if(p.text.empty())
++        return;
++    std::string line = "{\"type\":\"text\",\"id\":\"" + p.id + "\",\"text\":";
++    appendJSONString(line, p.text);
++    line += "}\n";
++    writeLine(line);
++    p.text.clear();
++}
++
++} // namespace
++
++void KazusaTextDrawn(const void *layer, const tjs_char *layerName,
++                     tjs_int fontHeight, const tjs_char *text) {
++    if(!text || !*text || !ensureOpen())
++        return;
++    auto [it, isNew] = pending.try_emplace({ layer, fontHeight });
++    Pending &p = it->second;
++    if(isNew) {
++        std::string name;
++        appendUTF8(name, layerName ? layerName : u"");
++        // The name hash keeps the id stable between runs, so Kazusa can remember
++        // which layer the user picked; the sequence number keeps it unique.
++        uint32_t hash = 2166136261u;
++        for(unsigned char c : name)
++            hash = (hash ^ c) * 16777619u;
++        char id[64];
++        snprintf(id, sizeof(id), "%d:%d:%08x:%d", (int)getpid(), nextSeq++,
++                 hash, (int)fontHeight);
++        p.id = id;
++        std::string line = "{\"type\":\"thread\",\"id\":\"" + p.id +
++            "\",\"hookcode\":\"krkr2\",\"name\":";
++        appendJSONString(line, name.empty() ? "krkr2" : name);
++        line += "}\n";
++        writeLine(line);
++    }
++    appendUTF8(p.text, text);
++    p.last = nowMs();
++}
++
++void KazusaTextForget(const void *layer) {
++    if(pipeFd < 0)
++        return;
++    for(auto it = pending.begin(); it != pending.end();) {
++        if(it->first.first == layer) {
++            send(it->second);
++            it = pending.erase(it);
++        } else {
++            ++it;
++        }
++    }
++}
++
++void KazusaTextTick() {
++    if(pipeFd < 0)
++        return;
++    long long now = nowMs();
++    for(auto &[key, p] : pending)
++        if(!p.text.empty() && now - p.last >= QuietMs)
++            send(p);
++}
+diff --git a/cpp/core/visual/kazusa_text.h b/cpp/core/visual/kazusa_text.h
+new file mode 100644
+index 0000000..8daec68
+--- /dev/null
++++ b/cpp/core/visual/kazusa_text.h
+@@ -0,0 +1,21 @@
++// Kazusa: send text the game draws to Kazusa for translation.
++//
++// When KAZUSA_TEXT_PIPE names a FIFO, text drawn with Layer.drawText is collected
++// per layer and font size, and written as JSON lines in the format of Kazusa's
++// text hook host once the layer has stopped drawing for a moment (KAG draws one
++// character per call and then waits for a click):
++//   {"type":"thread","id":"<pid>:<n>:<name hash>:<font height>","hookcode":"krkr2","name":"<layer name>"}
++//   {"type":"text","id":"...","text":"<UTF-8>"}
++// Separate font sizes keep ruby (furigana) out of the sentence; Kazusa picks the
++// layer with the most text as the dialogue. Without the variable nothing happens.
++
++#pragma once
++
++#include "tjsTypes.h"
++
++void KazusaTextDrawn(const void *layer, const tjs_char *layerName,
++                     tjs_int fontHeight, const tjs_char *text);
++// The layer is going away.
++void KazusaTextForget(const void *layer);
++// Called every frame: send what has been quiet long enough.
++void KazusaTextTick();
 diff --git a/vcpkg/ports/ffmpeg/portfile.cmake b/vcpkg/ports/ffmpeg/portfile.cmake
 index fede09d..74adc05 100644
 --- a/vcpkg/ports/ffmpeg/portfile.cmake
