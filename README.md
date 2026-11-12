@@ -22,6 +22,8 @@
 
 ![游戏详情](docs/screenshots/detail.png)
 
+![设置](docs/screenshots/settings.png)
+
 ## 亮点
 
 - 🎮 **拖进来就能玩**：自动识别 15 种引擎、主程序和语言版本，转区、字体替换、Wine 前缀都不用手动配置。
